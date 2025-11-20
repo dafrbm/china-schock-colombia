@@ -44,7 +44,7 @@ capture log close
 * Setup
 *------------------------------------------------------------------------------*
 
-global main_dir "C:\Users\dafrb\Desktop\EAM_data"
+global main_dir "C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK"
 global clean_dir "$main_dir/processed"
 global output_dir "$main_dir/output"
 global logs_dir "$main_dir/logs"

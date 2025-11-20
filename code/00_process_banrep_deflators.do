@@ -32,9 +32,10 @@ capture log close
 * Setup
 *------------------------------------------------------------------------------*
 
-global main_dir "C:\Users\dafrb\Desktop\EAM_data"
-global raw_dir  "$main_dir/raw_data"
+global main_dir "C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK"
+global raw_dir "$main_dir/raw_data"
 global clean_dir "$main_dir/processed"
+global output_dir "$main_dir/output"
 global logs_dir "$main_dir/logs"
 
 foreach dir in main_dir raw_dir clean_dir logs_dir {
@@ -48,7 +49,7 @@ log using "$logs_dir/00_deflators_`c(current_date)'.log", replace text
 *------------------------------------------------------------------------------*
 
 * Import Banrep Excel file (sheet "Datos" has 2 header rows)
-local excel_file "$raw_dir/graficador_series.xlsx"
+local excel_file "$raw_dir/deflators/graficador_series.xlsx"
 capture confirm file "`excel_file'"
 if _rc {
     display as error "ERROR: Excel file not found at `excel_file'"
