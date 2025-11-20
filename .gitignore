@@ -5,6 +5,7 @@
 !code/
 !output/
 !logs/
+!raw_data/
 
 # Dentro de code, permitir solo .do y .py
 code/*
@@ -20,8 +21,13 @@ output/*
 logs/*
 !logs/**
 
-# Ignorar datos y otros directorios
-raw_data/
+# Dentro de raw_data, permitir solo concordancias .txt
+raw_data/*
+!raw_data/concordance/
+raw_data/concordance/*
+!raw_data/concordance/**/*.txt
+
+# Ignorar otros directorios
 processed/
 docs/
 temp/
