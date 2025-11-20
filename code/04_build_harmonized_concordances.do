@@ -22,7 +22,35 @@ global code_dir "$main_dir/code"
 log using "$logs_dir/04_concordances_`c(current_date)'.log", replace text
 
 *==============================================================================*
-* PART 1: HS -> NAICS VIA R
+* PART 1: PROCESS PIERCE & SCHOTT HS -> NAICS
+*==============================================================================*
+
+use "$concordance_dir/hs_sic_naics_imports_89_123_20240801.dta", clear
+
+* Extract HS6 with leading zeros preserved
+tostring commodity, gen(hs10_str) format(%010.0f) force
+gen hs6_str = substr(hs10_str, 1, 6)
+
+keep hs6_str naics year
+drop if missing(hs6_str) | missing(naics) | hs6_str == "000000"
+
+* Keep most frequent HS6-NAICS combinations
+bysort hs6_str naics: gen n_obs = _N
+bysort hs6_str: egen max_obs = max(n_obs)
+keep if n_obs == max_obs
+
+duplicates drop hs6_str naics, force
+
+* Save temp file for R (string HS6 to preserve leading zeros)
+preserve
+    keep hs6_str naics
+    duplicates drop
+    rename hs6_str hs6
+    save "$concordance_dir/hs6_naics_temp.dta", replace
+restore
+
+*==============================================================================*
+* PART 2: HS -> NAICS VIA R CONCORDANCE PACKAGE
 *==============================================================================*
 
 capture confirm file "$concordance_dir/hs6_naics2017_concordance.dta"
@@ -31,7 +59,7 @@ if _rc != 0 {
 }
 
 *==============================================================================*
-* PART 2: NAICS 2017 -> ISIC REV 4
+* PART 3: NAICS 2017 -> ISIC REV 4
 *==============================================================================*
 
 import excel "$concordance_dir/2017_NAICS_to_ISIC_4.xlsx", clear firstrow
@@ -82,7 +110,7 @@ keep if isic4_2d >= 10 & isic4_2d <= 33
 save "$concordance_dir/naics2017_isic4_concordance.dta", replace
 
 *==============================================================================*
-* PART 3: HS -> ISIC REV 4 CONCORDANCE
+* PART 4: HS -> ISIC REV 4 CONCORDANCE
 *==============================================================================*
 
 use "$concordance_dir/hs6_naics2017_concordance.dta", clear
@@ -109,7 +137,7 @@ compress
 save "$concordance_dir/hs6_isic4_concordance.dta", replace
 
 *==============================================================================*
-* PART 4: ISIC VERSION CONCORDANCES
+* PART 5: ISIC VERSION CONCORDANCES
 *==============================================================================*
 
 * ISIC Rev 2 -> Rev 3
@@ -203,7 +231,7 @@ destring isic31 isic4, replace force
 save "$concordance_dir/isic31_isic4_concordance.dta", replace
 
 *==============================================================================*
-* PART 5: COMBINED ISIC REV 2/3 -> REV 4
+* PART 6: COMBINED ISIC REV 2/3 -> REV 4
 *==============================================================================*
 
 * Rev 2 -> Rev 4 (via Rev 3 and Rev 3.1)
@@ -254,7 +282,7 @@ gen source_revision = 3
 save "$concordance_dir/ciiu_rev3_to_rev4.dta", replace
 
 *==============================================================================*
-* PART 6: HARMONIZE EAM PANEL
+* PART 7: HARMONIZE EAM PANEL
 *==============================================================================*
 
 use "$clean_dir/panel_eam_with_tfp.dta", clear
