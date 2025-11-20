@@ -32,6 +32,7 @@ DATE: November 2025
 clear all
 set more off
 set maxvar 10000
+capture log close
 
 *------------------------------------------------------------------------------*
 * Setup
@@ -43,7 +44,11 @@ global clean_dir "$main_dir/processed"
 global output_dir "$main_dir/output"
 global logs_dir "$main_dir/logs"
 
-log using "$logs_dir/panel_build_`c(current_date)'.log", replace text
+foreach dir in main_dir raw_dir clean_dir output_dir logs_dir {
+    capture mkdir "${`dir'}"
+}
+
+log using "$logs_dir/01_merge_eam_`c(current_date)'.log", replace text
 
 *------------------------------------------------------------------------------*
 * Identify available years and common variables

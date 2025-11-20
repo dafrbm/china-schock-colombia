@@ -66,7 +66,7 @@ log using "$logs_dir/04_comtrade_`c(current_date)'.log", replace text
 *==============================================================================*
 
 *------------------------------------------------------------------------------*
-* Step 1.1: Process Pierce & Schott HS→NAICS
+* Process Pierce & Schott HS→NAICS
 *------------------------------------------------------------------------------*
 
 use "$concordance_dir/hs_sic_naics_imports_89_123_20240801.dta", clear
@@ -91,7 +91,7 @@ preserve
 restore
 
 *------------------------------------------------------------------------------*
-* Step 1.2: Process NAICS→ISIC
+* Process NAICS→ISIC
 *------------------------------------------------------------------------------*
 
 import delimited "$concordance_dir/NAICS2012US-ISIC4.txt", clear varnames(1)
@@ -109,7 +109,7 @@ drop if missing(naics) | missing(isic4)
 save "$concordance_dir/naics_isic_temp.dta", replace
 
 *------------------------------------------------------------------------------*
-* Step 1.3: Create master HS6→CIIU concordance
+* Create master HS6→CIIU concordance
 *------------------------------------------------------------------------------*
 
 use "$concordance_dir/hs6_naics_temp.dta", clear
@@ -152,7 +152,7 @@ restore
 *==============================================================================*
 
 *------------------------------------------------------------------------------*
-* Step 2.1: Colombia imports from China
+* Colombia imports from China
 *------------------------------------------------------------------------------*
 
 import delimited "$comtrade_dir/colombia_imports_from_china_HS6.csv", clear varnames(1)
@@ -183,7 +183,7 @@ compress
 save "$clean_dir/colombia_imports_china_ciiu.dta", replace
 
 *------------------------------------------------------------------------------*
-* Step 2.2: Colombia total imports
+* Colombia total imports
 *------------------------------------------------------------------------------*
 
 import delimited "$comtrade_dir/colombia_imports_from_world_HS6.csv", clear varnames(1)
@@ -214,7 +214,7 @@ compress
 save "$clean_dir/colombia_imports_total_ciiu.dta", replace
 
 *------------------------------------------------------------------------------*
-* Step 2.3: Colombia exports
+* Colombia exports
 *------------------------------------------------------------------------------*
 
 import delimited "$comtrade_dir/colombia_exports_to_world_HS6.csv", clear varnames(1)
@@ -245,7 +245,7 @@ compress
 save "$clean_dir/colombia_exports_total_ciiu.dta", replace
 
 *------------------------------------------------------------------------------*
-* Step 2.4: China exports to LAC
+* China exports to LAC
 *------------------------------------------------------------------------------*
 
 import delimited "$comtrade_dir/china_exports_to_lac_HS6.csv", clear varnames(1)
