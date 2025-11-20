@@ -58,9 +58,10 @@ tryCatch({
       pull(ciiu_2d) %>%
       unique()
 
+    pkg_result <- if (length(result) == 0 || all(is.na(result))) "NA" else paste(result, collapse=",")
     cat(sprintf("HS6 %s: Package=%s, Ours=%s\n",
                 hs_str,
-                ifelse(is.na(result), "NA", result),
+                pkg_result,
                 paste(our_ciiu, collapse=",")))
   }
 }, error = function(e) {
@@ -147,14 +148,44 @@ cat("\n=== Coverage Analysis ===\n")
 
 # Check which CIIU industries are covered
 covered_ciiu <- sort(unique(trade_ciiu$ciiu_2d))
-expected_ciiu <- 10:33  # Manufacturing industries
+# Note: Stata filters 10-39 but strict manufacturing is 10-33
+# ISIC4: 10-33=Manufacturing, 35=Electricity, 36-39=Water/Waste
+expected_manufacturing <- 10:33
+expected_stata_filter <- 10:39
 
-missing_ciiu <- setdiff(expected_ciiu, covered_ciiu)
-extra_ciiu <- setdiff(covered_ciiu, expected_ciiu)
+missing_manufacturing <- setdiff(expected_manufacturing, covered_ciiu)
+extra_non_manufacturing <- setdiff(covered_ciiu, expected_manufacturing)
 
 cat("Covered CIIU codes:", paste(covered_ciiu, collapse = ", "), "\n")
-cat("Missing CIIU codes:", paste(missing_ciiu, collapse = ", "), "\n")
-cat("Extra CIIU codes (outside 10-33):", paste(extra_ciiu, collapse = ", "), "\n")
+cat("Missing manufacturing (10-33):", paste(missing_manufacturing, collapse = ", "), "\n")
+cat("Non-manufacturing codes present:", paste(extra_non_manufacturing, collapse = ", "), "\n")
+
+# =============================================================================
+# DIAGNOSTIC 5b: Check for data inconsistency causing share > 1
+# =============================================================================
+
+cat("\n=== Data Inconsistency Check ===\n")
+
+# Find observations where imports_china > imports_total (impossible)
+impossible_obs <- trade_ciiu %>%
+  filter(imports_china > imports_total) %>%
+  mutate(excess = imports_china - imports_total) %>%
+  arrange(desc(excess))
+
+if (nrow(impossible_obs) > 0) {
+  cat("\n!!! Found", nrow(impossible_obs), "obs where China imports > Total imports:\n")
+  print(as.data.frame(head(impossible_obs, 15)))
+
+  # Summary by year
+  cat("\nBy year:\n")
+  impossible_by_year <- impossible_obs %>%
+    group_by(year) %>%
+    summarise(
+      n_industries = n(),
+      total_excess = sum(excess)
+    )
+  print(as.data.frame(impossible_by_year))
+}
 
 # =============================================================================
 # DIAGNOSTIC 6: Export diagnostic report
@@ -169,9 +200,11 @@ diagnostic_summary <- list(
   ),
   problematic_years = problematic,
   anomaly_count = nrow(anomalies),
+  impossible_obs_count = nrow(impossible_obs),
   coverage = list(
     covered = covered_ciiu,
-    missing = missing_ciiu
+    missing_manufacturing = missing_manufacturing,
+    non_manufacturing = extra_non_manufacturing
   )
 )
 
