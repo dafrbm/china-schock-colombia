@@ -89,8 +89,6 @@ preserve
     label variable avg_firms "Average firms per year"
     label variable n_distinct_firms "Distinct firms"
     
-    * Display summary
-    display as result _newline "Industry-level summary:"
     list ciiu_2d n_obs avg_firms n_distinct_firms, separator(0) abbreviate(20)
     
     * Export
