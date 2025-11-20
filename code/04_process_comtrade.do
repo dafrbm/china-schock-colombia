@@ -47,7 +47,7 @@ capture log close
 * Setup
 *------------------------------------------------------------------------------*
 
-global main_dir "C:\Users\dafrb\Desktop\EAM_data"
+global main_dir "C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK"
 global raw_dir "$main_dir/raw_data"
 global concordance_dir "$raw_dir/concordance"
 global comtrade_dir "$raw_dir/comtrade"

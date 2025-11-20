@@ -37,10 +37,13 @@ set maxvar 10000
 * Setup
 *------------------------------------------------------------------------------*
 
-global raw_data "C:\Users\dafrb\Desktop\EAM_data\raw_data"
-global output   "C:\Users\dafrb\Desktop\EAM_data\processed"
+global main_dir "C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK"
+global raw_dir "$main_dir/raw_data"
+global clean_dir "$main_dir/processed"
+global output_dir "$main_dir/output"
+global logs_dir "$main_dir/logs"
 
-log using "$output/panel_build_`c(current_date)'.log", replace text
+log using "$logs_dir/panel_build_`c(current_date)'.log", replace text
 
 *------------------------------------------------------------------------------*
 * Identify available years and common variables
@@ -52,7 +55,7 @@ local year_end = 2023
 * Check which years are available
 local years_available ""
 forvalues year = `year_start'/`year_end' {
-    capture confirm file "$raw_data/EAM_`year'.dta"
+    capture confirm file "$raw_dir/eam/EAM_`year'.dta"
     if _rc == 0 {
         local years_available "`years_available' `year'"
     }
@@ -62,7 +65,7 @@ local n_years : word count `years_available'
 
 * Find intersection of variables across all years
 local first_year : word 1 of `years_available'
-use "$raw_data/EAM_`first_year'.dta", clear
+use "$raw_dir/eam/EAM_`first_year'.dta", clear
 rename *, upper
 ds
 local common_vars `r(varlist)'
@@ -70,7 +73,7 @@ local common_vars `r(varlist)'
 foreach year of local years_available {
     if `year' == `first_year' continue
     
-    use "$raw_data/EAM_`year'.dta", clear
+    use "$raw_dir/eam/EAM_`year'.dta", clear
     rename *, upper
     ds
     local vars_year `r(varlist)'
@@ -82,7 +85,7 @@ foreach year of local years_available {
 clear
 set obs 1
 gen variables_comunes = "`common_vars'"
-export delimited using "$output/common_variables_list.csv", replace
+export delimited using "$clean_dir/common_variables_list.csv", replace
 
 *------------------------------------------------------------------------------*
 * Append years with CIIU harmonization
@@ -94,7 +97,7 @@ local year_count = 0
 
 foreach year of local years_available {
     
-    use "$raw_data/EAM_`year'.dta", clear
+    use "$raw_dir/eam/EAM_`year'.dta", clear
     local obs_original = _N
     
     rename *, upper
@@ -388,7 +391,7 @@ br if dup==1
 duplicates drop firm_id year, force
 
 
-save "$output/panel_eam_1992_2023.dta", replace
+save "$clean_dir/panel_eam_1992_2023.dta", replace
 
 * Export summary statistics
 preserve
@@ -396,7 +399,7 @@ collapse (count) n_firms=firm_id ///
          (sum) entries=entry exits=exit ///
          (mean) entry_rate=entry exit_rate=exit, ///
          by(year)
-export delimited using "$output/panel_summary_by_year.csv", replace
+export delimited using "$clean_dir/panel_summary_by_year.csv", replace
 restore
 
 * Export balance distribution
@@ -404,13 +407,13 @@ preserve
 collapse (count) n_firms=firm_id, by(n_years_obs)
 gen pct = n_firms / sum(n_firms) * 100
 gsort -n_years_obs
-export delimited using "$output/panel_balance_distribution.csv", replace
+export delimited using "$clean_dir/panel_balance_distribution.csv", replace
 restore
 
 * Export data dictionary
 preserve
 describe, replace clear
-export delimited using "$output/variables_dictionary.csv", replace
+export delimited using "$clean_dir/variables_dictionary.csv", replace
 restore
 
 *------------------------------------------------------------------------------*
