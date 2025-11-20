@@ -1,0 +1,11 @@
+check,value,pct_retained
+Initial observations,254790,
+Dropped: missing key vars,240,
+Dropped: zeros/negatives,36669,
+Dropped: M > Y,2006,
+Dropped: VA <= 0,1,
+Winsorized (outliers),10485,
+Final observations,215874,84.726242
+Final firms,19143,
+Valid for TFP estimation,187911,73.751328
+,,
