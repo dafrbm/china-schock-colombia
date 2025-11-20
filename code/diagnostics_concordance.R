@@ -11,7 +11,7 @@ library(haven)
 library(concordance)
 
 # Set paths
-base_dir <- "/home/user/china-schock-colombia"
+base_dir <- "C:/Users/dafrb/Desktop/EAM_data/china-schock"
 processed_dir <- file.path(base_dir, "processed")
 concordance_dir <- file.path(base_dir, "raw_data/concordance")
 output_dir <- file.path(base_dir, "output")
