@@ -1,0 +1,40 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/master_19 Nov 2025.log
+  log type:  text
+ opened on:  19 Nov 2025, 19:30:56
+
+. 
+. do "$code_dir/00_process_banrep_deflators.do"
+
+. /*==============================================================================
+> PROJECT: China Shock and Colombian Manufacturing
+> FILE: 00_process_banrep_deflators.do
+> PURPOSE: Process Banco de la República price indices to create deflators
+>          for productivity analysis following differentiated deflation approach
+> 
+> INPUTS:
+>     - graficador_series.xlsx (Banco de la República historical series)
+>     
+> OUTPUTS:
+>     - deflators_colombia_1992_2023.dta
+>     - Validation graphs (indices evolution and inflation rates)
+> 
+> METHODOLOGY:
+>     Differentiated deflation following Eslava et al. (2004):
+>     - Manufacturing output: IPP Manufacturing (domestic supply)
+>     - Intermediate inputs: IPP Intermediate consumption
+>     - Capital goods: IPP Capital goods
+>     - Labor costs: CPI Total
+>     
+>     Base year: 2018 (indices=100, deflators=1.0)
+> 
+> AUTHOR: David Becerra
+> DATE: November 2025
+> ==============================================================================*/
+. 
+. clear all
+
+. set more off
+
+. capture log close

@@ -1,0 +1,553 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/04_comtrade_19 Nov 2025.log
+  log type:  text
+ opened on:  19 Nov 2025, 23:17:14
+
+. 
+. *==============================================================================*
+. * PART 1: BUILD HS6 → CIIU CONCORDANCE
+. *==============================================================================*
+. 
+. *------------------------------------------------------------------------------*
+. * Process Pierce & Schott HS→NAICS
+. *------------------------------------------------------------------------------*
+. 
+. use "$concordance_dir/hs_sic_naics_imports_89_123_20240801.dta", clear
+
+. 
+. tostring commodity, gen(hs10_str) format(%010.0f) force
+hs10_str generated as str10
+
+. gen hs6_str = substr(hs10_str, 1, 6)
+
+. destring hs6_str, gen(hs6) force
+hs6_str: all characters numeric; hs6 generated as long
+
+. 
+. keep hs6 naics year
+
+. drop if missing(hs6) | missing(naics) | hs6 == 0
+(0 observations deleted)
+
+. 
+. bysort hs6 naics: gen n_obs = _N
+
+. bysort hs6: egen max_obs = max(n_obs)
+
+. keep if n_obs == max_obs
+(124,271 observations deleted)
+
+. 
+. duplicates drop hs6 naics, force
+
+Duplicates in terms of hs6 naics
+
+(485,517 observations deleted)
+
+. 
+. preserve
+
+.     keep hs6 naics
+
+.     duplicates drop
+
+Duplicates in terms of all variables
+
+(0 observations are duplicates)
+
+.     save "$concordance_dir/hs6_naics_temp.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/hs6_naics_temp.dta saved
+
+. restore
+
+. 
+. *------------------------------------------------------------------------------*
+. * Process NAICS→ISIC
+. *------------------------------------------------------------------------------*
+. 
+. import delimited "$concordance_dir/NAICS2012US-ISIC4.txt", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(5 vars, 1,665 obs)
+
+. 
+. rename naics2012code naics
+
+. rename isic4code isic4
+
+. keep if naics2012part == 0
+(925 observations deleted)
+
+. keep naics isic4
+
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(0 observations are duplicates)
+
+. 
+. destring naics, replace force
+naics: all characters numeric; replaced as long
+
+. destring isic4, replace force
+isic4 already numeric; no replace
+
+. drop if missing(naics) | missing(isic4)
+(0 observations deleted)
+
+. 
+. save "$concordance_dir/naics_isic_temp.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/naics_isic_temp.dta saved
+
+. 
+. *------------------------------------------------------------------------------*
+. * Create master HS6→CIIU concordance
+. *------------------------------------------------------------------------------*
+. 
+. use "$concordance_dir/hs6_naics_temp.dta", clear
+
+. 
+. destring naics, replace force
+naics: contains nonnumeric characters; replaced as long
+(50 missing values generated)
+
+. merge m:1 naics using "$concordance_dir/naics_isic_temp.dta", keep(match master)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                         5,166
+        from master                     5,166  (_merge==1)
+        from using                          0  (_merge==2)
+
+    Matched                             1,945  (_merge==3)
+    -----------------------------------------
+
+. 
+. gen isic2 = floor(isic4/100) if !missing(isic4)
+(5,166 missing values generated)
+
+. gen ciiu_2d = isic2 if !missing(isic2)
+(5,166 missing values generated)
+
+. keep if isic2 >= 10 & isic2 <= 39
+(5,354 observations deleted)
+
+. 
+. bysort hs6: gen n_ciiu = _N
+
+. gen weight = 1/n_ciiu
+
+. 
+. keep hs6 ciiu_2d isic2 isic4 naics weight
+
+. order hs6 ciiu_2d isic2 weight
+
+. 
+. label var hs6 "HS 6-digit product code"
+
+. label var ciiu_2d "CIIU 2-digit industry code"
+
+. label var isic2 "ISIC 2-digit code"
+
+. label var isic4 "ISIC 4-digit code"
+
+. label var naics "NAICS 6-digit code"
+
+. label var weight "Weight for many-to-many matches"
+
+. 
+. compress
+  variable ciiu_2d was float now byte
+  variable isic2 was float now byte
+  (10,542 bytes saved)
+
+. save "$concordance_dir/hs6_ciiu2_concordance_detailed.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/hs6_ciiu2_concordance_detailed.dta saved
+
+. 
+. preserve
+
+.     bysort hs6: egen max_weight = max(weight)
+
+.     keep if weight == max_weight
+(0 observations deleted)
+
+.     bysort hs6 (ciiu_2d): keep if _n == 1
+(20 observations deleted)
+
+.     keep hs6 ciiu_2d
+
+.     rename ciiu_2d ciiu_2d_primary
+
+.     label var ciiu_2d_primary "Primary CIIU (most common match)"
+
+.     save "$concordance_dir/hs6_ciiu2_concordance.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/hs6_ciiu2_concordance.dta saved
+
+. restore
+
+. 
+. *==============================================================================*
+. * PART 2: PROCESS TRADE DATA
+. *==============================================================================*
+. 
+. *------------------------------------------------------------------------------*
+. * Colombia imports from China
+. *------------------------------------------------------------------------------*
+. 
+. import delimited "$comtrade_dir/colombia_imports_from_china_HS6.csv", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(47 vars, 646,526 obs)
+
+. 
+. rename refyear year
+
+. rename cmdcode hs_code
+
+. rename primaryvalue trade_value_usd
+
+. 
+. destring year hs_code trade_value_usd, replace force
+year already numeric; no replace
+hs_code already numeric; no replace
+trade_value_usd already numeric; no replace
+
+. keep year hs_code trade_value_usd
+
+. rename hs_code hs6
+
+. 
+. merge m:1 hs6 using "$concordance_dir/hs6_ciiu2_concordance.dta", ///
+>       keep(match) nogen keepusing(ciiu_2d_primary)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                           205,460  
+    -----------------------------------------
+
+. 
+. rename ciiu_2d_primary ciiu_2d
+
+. 
+. collapse (sum) imports_china=trade_value_usd ///
+>          (count) n_hs6_products=hs6, ///
+>          by(ciiu_2d year)
+
+. 
+. label var imports_china "Imports from China (USD)"
+
+. label var n_hs6_products "Number of HS6 products"
+
+. label var ciiu_2d "CIIU 2-digit industry code"
+
+. 
+. sort ciiu_2d year
+
+. compress
+  variable n_hs6_products was long now int
+  (1,366 bytes saved)
+
+. save "$clean_dir/colombia_imports_china_ciiu.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/colombia_imports_china_ciiu.dta saved
+
+. 
+. *------------------------------------------------------------------------------*
+. * Colombia total imports
+. *------------------------------------------------------------------------------*
+. 
+. import delimited "$comtrade_dir/colombia_imports_from_world_HS6.csv", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(47 vars, 815,825 obs)
+
+. 
+. rename refyear year
+
+. rename cmdcode hs_code
+
+. rename primaryvalue trade_value_usd
+
+. 
+. destring year hs_code trade_value_usd, replace force
+year already numeric; no replace
+hs_code already numeric; no replace
+trade_value_usd already numeric; no replace
+
+. keep year hs_code trade_value_usd
+
+. rename hs_code hs6
+
+. 
+. merge m:1 hs6 using "$concordance_dir/hs6_ciiu2_concordance.dta", ///
+>       keep(match) nogen keepusing(ciiu_2d_primary)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                           264,561  
+    -----------------------------------------
+
+. 
+. rename ciiu_2d_primary ciiu_2d
+
+. 
+. collapse (sum) imports_total=trade_value_usd ///
+>          (count) n_hs6_products=hs6, ///
+>          by(ciiu_2d year)
+
+. 
+. label var imports_total "Total imports from World (USD)"
+
+. label var n_hs6_products "Number of HS6 products"
+
+. label var ciiu_2d "CIIU 2-digit industry code"
+
+. 
+. sort ciiu_2d year
+
+. compress
+  variable n_hs6_products was long now int
+  (1,462 bytes saved)
+
+. save "$clean_dir/colombia_imports_total_ciiu.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/colombia_imports_total_ciiu.dta saved
+
+. 
+. *------------------------------------------------------------------------------*
+. * Colombia exports
+. *------------------------------------------------------------------------------*
+. 
+. import delimited "$comtrade_dir/colombia_exports_to_world_HS6.csv", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(47 vars, 207,007 obs)
+
+. 
+. rename refyear year
+
+. rename cmdcode hs_code
+
+. rename primaryvalue trade_value_usd
+
+. 
+. destring year hs_code trade_value_usd, replace force
+year already numeric; no replace
+hs_code already numeric; no replace
+trade_value_usd already numeric; no replace
+
+. keep year hs_code trade_value_usd
+
+. rename hs_code hs6
+
+. 
+. merge m:1 hs6 using "$concordance_dir/hs6_ciiu2_concordance.dta", ///
+>       keep(match) nogen keepusing(ciiu_2d_primary)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            55,987  
+    -----------------------------------------
+
+. 
+. rename ciiu_2d_primary ciiu_2d
+
+. 
+. collapse (sum) exports_total=trade_value_usd ///
+>          (count) n_hs6_products=hs6, ///
+>          by(ciiu_2d year)
+
+. 
+. label var exports_total "Total exports to World (USD)"
+
+. label var n_hs6_products "Number of HS6 products"
+
+. label var ciiu_2d "CIIU 2-digit industry code"
+
+. 
+. sort ciiu_2d year
+
+. compress
+  variable n_hs6_products was long now int
+  (1,488 bytes saved)
+
+. save "$clean_dir/colombia_exports_total_ciiu.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/colombia_exports_total_ciiu.dta saved
+
+. 
+. *------------------------------------------------------------------------------*
+. * China exports to LAC
+. *------------------------------------------------------------------------------*
+. 
+. import delimited "$comtrade_dir/china_exports_to_lac_HS6.csv", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(48 vars, 420,193 obs)
+
+. 
+. rename refyear year
+
+. rename cmdcode hs_code
+
+. rename primaryvalue trade_value_usd
+
+. 
+. destring year hs_code trade_value_usd, replace force
+year already numeric; no replace
+hs_code already numeric; no replace
+trade_value_usd already numeric; no replace
+
+. keep year hs_code trade_value_usd partner_country
+
+. rename hs_code hs6
+
+. 
+. merge m:1 hs6 using "$concordance_dir/hs6_ciiu2_concordance.dta", ///
+>       keep(match) nogen keepusing(ciiu_2d_primary)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                           113,107  
+    -----------------------------------------
+
+. 
+. rename ciiu_2d_primary ciiu_2d
+
+. 
+. collapse (sum) exports_china=trade_value_usd ///
+>          (count) n_hs6_products=hs6, ///
+>          by(ciiu_2d partner_country year)
+
+. 
+. label var exports_china "China exports to LAC (USD)"
+
+. label var n_hs6_products "Number of HS6 products"
+
+. label var ciiu_2d "CIIU 2-digit industry code"
+
+. 
+. sort ciiu_2d partner_country year
+
+. compress
+  variable n_hs6_products was long now int
+  (6,580 bytes saved)
+
+. save "$clean_dir/china_lac_exports_ciiu.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/china_lac_exports_ciiu.dta saved
+
+. 
+. *==============================================================================*
+. * PART 3: SUMMARY STATISTICS AND VALIDATION
+. *==============================================================================*
+. 
+. *------------------------------------------------------------------------------*
+. * Calculate China import share
+. *------------------------------------------------------------------------------*
+. 
+. use "$clean_dir/colombia_imports_china_ciiu.dta", clear
+
+. merge 1:1 ciiu_2d year using "$clean_dir/colombia_imports_total_ciiu.dta", ///
+>       keep(match) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                               672  
+    -----------------------------------------
+
+. 
+. gen china_share = imports_china / imports_total
+
+. label var china_share "China share of total imports"
+
+. 
+. compress
+  (0 bytes saved)
+
+. save "$clean_dir/colombia_trade_ciiu.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/colombia_trade_ciiu.dta saved
+
+. 
+. *------------------------------------------------------------------------------*
+. * Summary statistics
+. *------------------------------------------------------------------------------*
+. 
+. * Top industries by China imports
+. preserve
+
+.     collapse (sum) total_imports=imports_china, by(ciiu_2d)
+
+.     gsort -total_imports
+
+.     gen rank = _n
+
+.     export delimited using "$output_dir/top_industries_china_imports.csv" ///
+>            if rank <= 10, replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/top_industries_china_imports.csv saved
+
+. restore
+
+. 
+. * China share by industry
+. preserve
+
+.     keep if year >= 2000
+(154 observations deleted)
+
+.     collapse (mean) avg_china_share=china_share, by(ciiu_2d)
+
+.     gsort -avg_china_share
+
+.     export delimited using "$output_dir/china_share_by_industry.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/china_share_by_industry.csv saved
+
+. restore
+
+. 
+. * Time series
+. preserve
+
+.     collapse (sum) imports_china imports_total ///
+>              (mean) china_share, by(year)
+
+.     export delimited using "$output_dir/colombia_trade_timeseries.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/colombia_trade_timeseries.csv saved
+
+. restore
+
+. 
+. *------------------------------------------------------------------------------*
+. * LAC exports summary
+. *------------------------------------------------------------------------------*
+. 
+. use "$clean_dir/china_lac_exports_ciiu.dta", clear
+
+. 
+. preserve
+
+.     collapse (sum) total_exports=exports_china, by(ciiu_2d partner_country)
+
+.     reshape wide total_exports, i(ciiu_2d) j(partner_country) string
+(j = Argentina Brazil Chile Ecuador Peru)
+
+Data                               Long   ->   Wide
+-----------------------------------------------------------------------------
+Number of observations              118   ->   24          
+Number of variables                   3   ->   6           
+j variable (5 values)   partner_country   ->   (dropped)
+xij variables:
+                          total_exports   ->   total_exportsArgentina total_exportsBrazil ... total_exportsPeru
+-----------------------------------------------------------------------------
+
+.     export delimited using "$output_dir/lac_exports_by_ciiu_country.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/lac_exports_by_ciiu_country.csv saved
+
+. restore
+
+. 
+. log close
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/04_comtrade_19 Nov 2025.log
+  log type:  text
+ closed on:  19 Nov 2025, 23:17:28
+----------------------------------------------------------------------------------------------------------------------------------------

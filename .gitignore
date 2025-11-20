@@ -4,6 +4,7 @@
 # Permitir carpetas específicas
 !code/
 !output/
+!logs/
 
 # Dentro de code, permitir solo .do y .py
 code/*
@@ -15,9 +16,12 @@ code/*
 output/*
 !output/**
 
+# Dentro de logs, permitir todo
+logs/*
+!logs/**
+
 # Ignorar datos y otros directorios
 raw_data/
 processed/
-logs/
 docs/
 temp/

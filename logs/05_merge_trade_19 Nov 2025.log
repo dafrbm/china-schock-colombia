@@ -1,0 +1,36 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/05_merge_trade_19 Nov 2025.log
+  log type:  text
+ opened on:  19 Nov 2025, 23:10:53
+
+. 
+. *==============================================================================*
+. * PART 1: MERGE TRADE DATA WITH PANEL
+. *==============================================================================*
+. 
+. use "$clean_dir/panel_eam_with_tfp.dta", clear
+
+. 
+. local n_obs_initial = _N
+
+. 
+. destring ciiu_2d, replace force
+ciiu_2d already numeric; no replace
+
+. 
+. *------------------------------------------------------------------------------*
+. * Merge Colombia imports from China
+. *------------------------------------------------------------------------------*
+. 
+. merge m:1 ciiu_2d year using "$clean_dir/colombia_imports_china_ciiu.dta", ///
+>     keep(master match) keepusing(imports_china n_hs6_products)
+key variable ciiu_2d is byte in master but str2 in using data
+    Each key variable (on which observations are matched) must be of the same generic type in the master and using datasets.  Same
+    generic type means both numeric or both string.
+r(106);
+
+end of do-file
+
+r(106);
+
