@@ -82,9 +82,10 @@ egen n_periods_industry = count(firm_id), by(ciiu_2d firm_id)
 
 * Summary by industry
 preserve
+    bysort ciiu_2d firm_id: gen firm_tag = (_n == 1)
     collapse (count) n_obs=firm_id ///
              (mean) avg_firms=n_firms_industry ///
-             (count) n_distinct_firms=firm_id, ///
+             (sum) n_distinct_firms=firm_tag, ///
              by(ciiu_2d)
     
     * Label for interpretation
