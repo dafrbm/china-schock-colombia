@@ -118,8 +118,8 @@ destring naics, replace force
 merge m:1 naics using "$concordance_dir/naics_isic_temp.dta", keep(match master)
 
 gen isic2 = floor(isic4/100) if !missing(isic4)
-gen ciiu_2d = string(isic2, "%02.0f") if !missing(isic2)
-keep if isic2 >= 10 & isic2 <= 39
+gen ciiu_2d = isic2 if !missing(isic2)
+keep if isic2 >= 10 & isic2 <= 33  // Manufacturing only (ISIC Rev 4)
 
 bysort hs6: gen n_ciiu = _N
 gen weight = 1/n_ciiu
@@ -316,8 +316,8 @@ restore
 
 * Time series
 preserve
-    collapse (sum) imports_china imports_total ///
-             (mean) china_share, by(year)
+    collapse (sum) imports_china imports_total, by(year)
+    gen china_share = imports_china / imports_total
     export delimited using "$output_dir/colombia_trade_timeseries.csv", replace
 restore
 

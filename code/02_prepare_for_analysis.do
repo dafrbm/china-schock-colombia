@@ -58,7 +58,8 @@ log using "$logs_dir/02_prepare_`c(current_date)'.log", replace text
 use "$clean_dir/panel_eam_1992_2023.dta", clear
 
 local n_obs_initial = _N
-local n_firms_initial = r(N)
+distinct firm_id
+local n_firms_initial = r(ndistinct)
 
 * Merge with deflators
 merge m:1 year using "$clean_dir/deflators_colombia_1992_2023.dta", ///
