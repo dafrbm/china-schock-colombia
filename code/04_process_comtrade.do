@@ -206,11 +206,16 @@ collapse (sum) imports_china imports_total ///
 * Generate china_share at observation level
 gen china_share = imports_china / imports_total
 
+* Flag and cap anomalies where China > World (Comtrade data quality issue)
+gen anomaly_china_gt_world = (china_share > 1)
+replace china_share = 1 if china_share > 1
+
 label var imports_china "Imports from China (USD)"
 label var imports_total "Total imports from World (USD)"
 label var n_hs6_products "Number of HS6 products"
 label var ciiu_2d "CIIU 2-digit industry code"
-label var china_share "China share of total imports"
+label var china_share "China share of total imports (capped at 1)"
+label var anomaly_china_gt_world "=1 if raw China imports > World (data quality flag)"
 
 sort ciiu_2d year
 compress
