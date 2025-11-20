@@ -152,9 +152,10 @@ restore
 *==============================================================================*
 
 *------------------------------------------------------------------------------*
-* Colombia imports from China
+* Colombia imports: Merge China and World at HS6 level first
 *------------------------------------------------------------------------------*
 
+* Load China imports
 import delimited "$comtrade_dir/colombia_imports_from_china_HS6.csv", clear varnames(1)
 
 rename refyear year
@@ -164,28 +165,15 @@ rename primaryvalue trade_value_usd
 destring year hs_code trade_value_usd, replace force
 keep year hs_code trade_value_usd
 rename hs_code hs6
+rename trade_value_usd imports_china
 
-merge m:1 hs6 using "$concordance_dir/hs6_ciiu2_concordance.dta", ///
-      keep(match) nogen keepusing(ciiu_2d_primary)
+* Collapse to HS6-year level (in case of duplicates)
+collapse (sum) imports_china, by(hs6 year)
 
-rename ciiu_2d_primary ciiu_2d
+tempfile china_imports
+save `china_imports'
 
-collapse (sum) imports_china=trade_value_usd ///
-         (count) n_hs6_products=hs6, ///
-         by(ciiu_2d year)
-
-label var imports_china "Imports from China (USD)"
-label var n_hs6_products "Number of HS6 products"
-label var ciiu_2d "CIIU 2-digit industry code"
-
-sort ciiu_2d year
-compress
-save "$clean_dir/colombia_imports_china_ciiu.dta", replace
-
-*------------------------------------------------------------------------------*
-* Colombia total imports
-*------------------------------------------------------------------------------*
-
+* Load World imports
 import delimited "$comtrade_dir/colombia_imports_from_world_HS6.csv", clear varnames(1)
 
 rename refyear year
@@ -195,23 +183,51 @@ rename primaryvalue trade_value_usd
 destring year hs_code trade_value_usd, replace force
 keep year hs_code trade_value_usd
 rename hs_code hs6
+rename trade_value_usd imports_total
 
+* Collapse to HS6-year level
+collapse (sum) imports_total, by(hs6 year)
+
+* Merge with China imports at HS6-year level
+* Keep only HS6-year combinations that exist in BOTH datasets
+merge 1:1 hs6 year using `china_imports', keep(match) nogen
+
+* Now apply concordance to the merged dataset
 merge m:1 hs6 using "$concordance_dir/hs6_ciiu2_concordance.dta", ///
       keep(match) nogen keepusing(ciiu_2d_primary)
 
 rename ciiu_2d_primary ciiu_2d
 
-collapse (sum) imports_total=trade_value_usd ///
+* Collapse to CIIU-year level
+collapse (sum) imports_china imports_total ///
          (count) n_hs6_products=hs6, ///
          by(ciiu_2d year)
 
+* Generate china_share at observation level
+gen china_share = imports_china / imports_total
+
+label var imports_china "Imports from China (USD)"
 label var imports_total "Total imports from World (USD)"
 label var n_hs6_products "Number of HS6 products"
 label var ciiu_2d "CIIU 2-digit industry code"
+label var china_share "China share of total imports"
 
 sort ciiu_2d year
 compress
-save "$clean_dir/colombia_imports_total_ciiu.dta", replace
+
+* Save combined trade data (this is the main output)
+save "$clean_dir/colombia_trade_ciiu.dta", replace
+
+* Also save separate files for backward compatibility
+preserve
+    keep ciiu_2d year imports_china n_hs6_products
+    save "$clean_dir/colombia_imports_china_ciiu.dta", replace
+restore
+
+preserve
+    keep ciiu_2d year imports_total n_hs6_products
+    save "$clean_dir/colombia_imports_total_ciiu.dta", replace
+restore
 
 *------------------------------------------------------------------------------*
 * Colombia exports
@@ -280,22 +296,10 @@ save "$clean_dir/china_lac_exports_ciiu.dta", replace
 *==============================================================================*
 
 *------------------------------------------------------------------------------*
-* Calculate China import share
-*------------------------------------------------------------------------------*
-
-use "$clean_dir/colombia_imports_china_ciiu.dta", clear
-merge 1:1 ciiu_2d year using "$clean_dir/colombia_imports_total_ciiu.dta", ///
-      keep(match) nogen
-
-gen china_share = imports_china / imports_total
-label var china_share "China share of total imports"
-
-compress
-save "$clean_dir/colombia_trade_ciiu.dta", replace
-
-*------------------------------------------------------------------------------*
 * Summary statistics
 *------------------------------------------------------------------------------*
+
+use "$clean_dir/colombia_trade_ciiu.dta", clear
 
 * Top industries by China imports
 preserve
