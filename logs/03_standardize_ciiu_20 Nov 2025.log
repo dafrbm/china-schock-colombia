@@ -1,0 +1,576 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/03_standardize_ciiu_20 Nov 2025.log
+  log type:  text
+ opened on:  20 Nov 2025, 06:06:58
+
+. 
+. *==============================================================================*
+. * PART 1: BUILD ISIC VERSION CONCORDANCES
+. *==============================================================================*
+. 
+. import delimited "$concordance_dir/ISIC3-ISIC2.txt", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(5 vars, 586 obs)
+
+. keep isic3 isic2
+
+. drop if missing(isic3) | missing(isic2)
+(0 observations deleted)
+
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(1 observation deleted)
+
+. destring isic2 isic3, replace force
+isic2 already numeric; no replace
+isic3 already numeric; no replace
+
+. save "$concordance_dir/isic2_isic3_concordance.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/isic2_isic3_concordance.dta saved
+
+. 
+. import delimited "$concordance_dir/ISIC_Rev_31-ISIC_Rev_3_correspondence.txt", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(5 vars, 316 obs)
+
+. rename rev31 isic31
+
+. rename rev3 isic3
+
+. keep isic3 isic31
+
+. drop if missing(isic3) | missing(isic31)
+(0 observations deleted)
+
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(0 observations are duplicates)
+
+. destring isic3 isic31, replace force
+isic3: contains nonnumeric characters; replaced as int
+(2 missing values generated)
+isic31 already numeric; no replace
+
+. save "$concordance_dir/isic3_isic31_concordance.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/isic3_isic31_concordance.dta saved
+
+. 
+. import delimited "$concordance_dir/ISIC4_ISIC31.txt", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(5 vars, 737 obs)
+
+. rename isic4code isic4
+
+. rename isic31code isic31
+
+. keep isic31 isic4
+
+. drop if missing(isic31) | missing(isic4)
+(0 observations deleted)
+
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(0 observations are duplicates)
+
+. destring isic31 isic4, replace force
+isic31 already numeric; no replace
+isic4 already numeric; no replace
+
+. save "$concordance_dir/isic31_isic4_concordance.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/isic31_isic4_concordance.dta saved
+
+. 
+. *==============================================================================*
+. * PART 2: BUILD COMBINED CONCORDANCES TO REV 4
+. *==============================================================================*
+. 
+. use "$concordance_dir/isic2_isic3_concordance.dta", clear
+
+. merge m:m isic3 using "$concordance_dir/isic3_isic31_concordance.dta", keep(match master) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                               593  
+    -----------------------------------------
+
+. merge m:m isic31 using "$concordance_dir/isic31_isic4_concordance.dta", keep(match master) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                               840  
+    -----------------------------------------
+
+. bysort isic2 isic4: gen n = _N
+
+. bysort isic2: egen max_n = max(n)
+
+. keep if n == max_n
+(312 observations deleted)
+
+. bysort isic2 (isic4): keep if _n == 1
+(369 observations deleted)
+
+. keep isic2 isic4
+
+. rename isic2 ciiu_original
+
+. rename isic4 ciiu_rev4
+
+. gen ciiu_rev4_4d = ciiu_rev4
+
+. gen ciiu_rev4_3d = floor(ciiu_rev4/10)
+
+. gen ciiu_rev4_2d = floor(ciiu_rev4/100)
+
+. gen source_revision = 2
+
+. save "$concordance_dir/ciiu_rev2_to_rev4.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/ciiu_rev2_to_rev4.dta saved
+
+. 
+. use "$concordance_dir/isic3_isic31_concordance.dta", clear
+
+. merge m:m isic31 using "$concordance_dir/isic31_isic4_concordance.dta", keep(match master) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                               743  
+    -----------------------------------------
+
+. bysort isic3 isic4: gen n = _N
+
+. bysort isic3: egen max_n = max(n)
+
+. keep if n == max_n
+(31 observations deleted)
+
+. bysort isic3 (isic4): keep if _n == 1
+(419 observations deleted)
+
+. keep isic3 isic4
+
+. rename isic3 ciiu_original
+
+. rename isic4 ciiu_rev4
+
+. gen ciiu_rev4_4d = ciiu_rev4
+
+. gen ciiu_rev4_3d = floor(ciiu_rev4/10)
+
+. gen ciiu_rev4_2d = floor(ciiu_rev4/100)
+
+. gen source_revision = 3
+
+. save "$concordance_dir/ciiu_rev3_to_rev4.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/ciiu_rev3_to_rev4.dta saved
+
+. 
+. *==============================================================================*
+. * PART 3: HARMONIZE EAM PANEL
+. *==============================================================================*
+. 
+. use "$clean_dir/panel_eam_clean.dta", clear
+
+. 
+. gen ciiu_revision = .
+(215,874 missing values generated)
+
+. replace ciiu_revision = 4 if regexm(ciiu_source, "[CI]+U+[24]") & regexm(ciiu_source, "4")
+(108,284 real changes made)
+
+. replace ciiu_revision = 3 if regexm(ciiu_source, "[CI]+U+[23]") & regexm(ciiu_source, "3") & missing(ciiu_revision)
+(76,880 real changes made)
+
+. replace ciiu_revision = 2 if regexm(ciiu_source, "[CI]+U+2") & missing(ciiu_revision)
+(14,927 real changes made)
+
+. replace ciiu_revision = 2 if missing(ciiu_revision) & year <= 2000
+(0 real changes made)
+
+. replace ciiu_revision = 3 if missing(ciiu_revision) & year >= 2001 & year <= 2011
+(6,675 real changes made)
+
+. replace ciiu_revision = 4 if missing(ciiu_revision) & year >= 2012
+(9,108 real changes made)
+
+. label variable ciiu_revision "CIIU/ISIC revision used (2, 3, or 4)"
+
+. 
+. tab ciiu_revision, missing
+
+  CIIU/ISIC |
+   revision |
+used (2, 3, |
+      or 4) |      Freq.     Percent        Cum.
+------------+-----------------------------------
+          2 |     14,927        6.91        6.91
+          3 |     83,555       38.71       45.62
+          4 |    117,392       54.38      100.00
+------------+-----------------------------------
+      Total |    215,874      100.00
+
+. 
+. preserve
+
+.     bysort ciiu_revision: gen n = _n
+
+.     keep if n <= 3
+(215,865 observations deleted)
+
+.     list ciiu_revision ciiu_source year ciiu in 1/9, separator(0) abbreviate(20)
+
+     +-------------------------------------------+
+     | ciiu_revision   ciiu_source   year   ciiu |
+     |-------------------------------------------|
+  1. |             2         CIIU2   1997   3710 |
+  2. |             2         CIIU2   2000   3560 |
+  3. |             2         CIIU2   2000   3523 |
+  4. |             3         CIIU3   2007   1810 |
+  5. |             3         CIIU3   2009   2220 |
+  6. |             3         CIIU3   2005   3699 |
+  7. |             4         CIIU4   2019   2399 |
+  8. |             4         CIIU4   2015   2221 |
+  9. |             4         CIIU4   2014   2221 |
+     +-------------------------------------------+
+
+. restore
+
+. 
+. gen ciiu_numeric = real(ciiu)
+
+. label variable ciiu_numeric "CIIU code (numeric)"
+
+. 
+. gen ciiu_rev4_4d = .
+(215,874 missing values generated)
+
+. gen ciiu_rev4_3d = .
+(215,874 missing values generated)
+
+. gen ciiu_rev4_2d = .
+(215,874 missing values generated)
+
+. label variable ciiu_rev4_4d "ISIC Rev 4 - 4 digit"
+
+. label variable ciiu_rev4_3d "ISIC Rev 4 - 3 digit"
+
+. label variable ciiu_rev4_2d "ISIC Rev 4 - 2 digit (division)"
+
+. 
+. replace ciiu_rev4_4d = ciiu_numeric if ciiu_revision == 4
+(117,392 real changes made)
+
+. replace ciiu_rev4_3d = floor(ciiu_numeric/10) if ciiu_revision == 4
+(117,392 real changes made)
+
+. replace ciiu_rev4_2d = floor(ciiu_numeric/100) if ciiu_revision == 4
+(117,392 real changes made)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Merge Rev 2 codes
+. *------------------------------------------------------------------------------*
+. 
+. preserve
+
+.     use "$concordance_dir/ciiu_rev2_to_rev4.dta", clear
+
+.     keep ciiu_original ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     gen ciiu_3d = floor(ciiu_original/10)
+
+.     gen ciiu_2d = floor(ciiu_original/100)
+
+.     rename ciiu_original ciiu_4d
+
+.     keep ciiu_4d ciiu_3d ciiu_2d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     tempfile rev2_full
+
+.     save `rev2_full'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_000003.tmp saved as .dta format
+
+. restore
+
+. 
+. preserve
+
+.     use `rev2_full', clear
+
+.     keep ciiu_4d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     rename ciiu_4d ciiu_match
+
+.     tempfile rev2_4d
+
+.     save `rev2_4d'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_000005.tmp saved as .dta format
+
+. restore
+
+. 
+. preserve
+
+.     use `rev2_full', clear
+
+.     keep ciiu_3d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     duplicates drop ciiu_3d, force
+
+Duplicates in terms of ciiu_3d
+
+(87 observations deleted)
+
+.     rename ciiu_3d ciiu_match
+
+.     tempfile rev2_3d
+
+.     save `rev2_3d'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_000007.tmp saved as .dta format
+
+. restore
+
+. 
+. preserve
+
+.     use `rev2_full', clear
+
+.     keep ciiu_2d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     duplicates drop ciiu_2d, force
+
+Duplicates in terms of ciiu_2d
+
+(126 observations deleted)
+
+.     rename ciiu_2d ciiu_match
+
+.     tempfile rev2_2d
+
+.     save `rev2_2d'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_000009.tmp saved as .dta format
+
+. restore
+
+. 
+. gen ciiu_match = real(ciiu)
+
+. merge m:1 ciiu_match using `rev2_4d', keep(master match) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       176,308
+        from master                   176,308  
+        from using                          0  
+
+    Matched                            39,566  
+    -----------------------------------------
+
+. replace ciiu_match = floor(real(ciiu)/10) if ciiu_revision == 2 & missing(ciiu_rev4_2d)
+(14,927 real changes made)
+
+. merge m:1 ciiu_match using `rev2_3d', keep(master match) nogen update
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       197,484
+        from master                   197,484  
+        from using                          0  
+
+    Matched                                 0
+        not updated                         0  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+
+. replace ciiu_match = floor(real(ciiu)/100) if ciiu_revision == 2 & missing(ciiu_rev4_2d)
+(0 real changes made)
+
+. merge m:1 ciiu_match using `rev2_2d', keep(master match) nogen update
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       194,731
+        from master                   194,731  
+        from using                          0  
+
+    Matched                                 0
+        not updated                         0  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+
+. drop ciiu_match
+
+. 
+. *------------------------------------------------------------------------------*
+. * Merge Rev 3 codes - CORRECTED VERSION
+. *------------------------------------------------------------------------------*
+. 
+. preserve
+
+.     use "$concordance_dir/ciiu_rev3_to_rev4.dta", clear
+
+.     keep ciiu_original ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     gen ciiu_3d = floor(ciiu_original/10)
+(1 missing value generated)
+
+.     gen ciiu_2d = floor(ciiu_original/100)
+(1 missing value generated)
+
+.     rename ciiu_original ciiu_4d
+
+.     keep ciiu_4d ciiu_3d ciiu_2d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     tempfile rev3_full
+
+.     save `rev3_full'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_00000b.tmp saved as .dta format
+
+. restore
+
+. 
+. preserve
+
+.     use `rev3_full', clear
+
+.     keep ciiu_4d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     rename ciiu_4d ciiu_match
+
+.     tempfile rev3_4d
+
+.     save `rev3_4d'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_00000d.tmp saved as .dta format
+
+. restore
+
+. 
+. preserve
+
+.     use `rev3_full', clear
+
+.     keep ciiu_3d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     duplicates drop ciiu_3d, force
+
+Duplicates in terms of ciiu_3d
+
+(133 observations deleted)
+
+.     rename ciiu_3d ciiu_match
+
+.     tempfile rev3_3d
+
+.     save `rev3_3d'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_00000f.tmp saved as .dta format
+
+. restore
+
+. 
+. preserve
+
+.     use `rev3_full', clear
+
+.     keep ciiu_2d ciiu_rev4_4d ciiu_rev4_3d ciiu_rev4_2d
+
+.     duplicates drop ciiu_2d, force
+
+Duplicates in terms of ciiu_2d
+
+(232 observations deleted)
+
+.     rename ciiu_2d ciiu_match
+
+.     tempfile rev3_2d
+
+.     save `rev3_2d'
+file C:\Users\dafrb\AppData\Local\Temp\ST_8584_00000h.tmp saved as .dta format
+
+. restore
+
+. 
+. gen ciiu_match = real(ciiu) if ciiu_revision == 3
+(111,176 missing values generated)
+
+. merge m:1 ciiu_match using `rev3_4d', keep(master match) nogen update
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                        27,900
+        from master                    27,900  
+        from using                          0  
+
+    Matched                                 0
+        not updated                         0  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+
+. 
+. replace ciiu_match = floor(real(ciiu)/10) if ciiu_revision == 3 & missing(ciiu_rev4_2d)
+(27,900 real changes made)
+
+. merge m:1 ciiu_match using `rev3_3d', keep(master match) nogen update
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                         8,325
+        from master                     8,325  
+        from using                          0  
+
+    Matched                                 0
+        not updated                         0  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+
+. 
+. replace ciiu_match = floor(real(ciiu)/100) if ciiu_revision == 3 & missing(ciiu_rev4_2d)
+(8,325 real changes made)
+
+. merge m:1 ciiu_match using `rev3_2d', keep(master match) nogen update
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+
+    Matched                                 0
+        not updated                         0  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+
+. 
+. drop ciiu_match
+
+. 
+. *==============================================================================*
+. * PART 4: QUALITY CHECKS AND SUMMARY STATISTICS
+. *==============================================================================*
+. 
+. preserve
+
+.     gen harmonized = !missing(ciiu_rev4_2d)
+
+.     collapse (count) n_total=harmonized (sum) n_harmonized=harmonized ///
+>              (mean) match_rate=harmonized, by(ciiu_revision)
+no observations
+r(2000);
+
+end of do-file
+
+r(2000);
+
+. exit, clear

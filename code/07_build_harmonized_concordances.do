@@ -53,7 +53,7 @@ restore
 * PART 2: HS -> NAICS VIA R CONCORDANCE PACKAGE
 *==============================================================================*
 
-*shell "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" "$code_dir/hs_to_naics_concordance.R" "$concordance_dir" "$concordance_dir"
+*shell "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" "$code_dir/07a_hs_to_naics_concordance.R" "$concordance_dir" "$concordance_dir"
 
 *==============================================================================*
 * PART 3: NAICS 2017 -> ISIC REV 4
