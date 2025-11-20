@@ -1,6 +1,6 @@
 /*==============================================================================
 PROJECT: China Shock and Colombian Manufacturing
-FILE: 03_estimate_tfp_prodest.do
+FILE: 04_estimate_tfp_prodest.do
 PURPOSE: Estimate Total Factor Productivity using multiple methods via prodest
          
 METHODS IMPLEMENTED:
@@ -10,7 +10,7 @@ METHODS IMPLEMENTED:
     4. Gandhi-Navarro-Rivers (2020) - GNR (if separately estimated)
 
 INPUTS:
-    - panel_eam_clean.dta (from script 02)
+    - panel_eam_harmonized.dta (from script 03 - with CIIU Rev 4 codes)
     
 OUTPUTS:
     - panel_eam_with_tfp.dta (panel with TFP estimates from all methods)
@@ -21,14 +21,7 @@ OUTPUTS:
 METHODOLOGY:
     All methods estimated using prodest package (Mollisi & Rovigatti, 2017)
     
-    Key advantages of prodest:
-    - Unified interface for multiple estimators
-    - GMM optimization instead of NLS
-    - Robust standard errors
-    - ACF correction available
-    - Wooldridge one-step GMM implementation
-    
-    Industry level: CIIU 2-digit
+    Industry level: ISIC Rev 4 - 2 digit (harmonized)
     Minimum threshold: 100 observations per industry
 
 AUTHOR: David Becerra
@@ -55,16 +48,19 @@ foreach dir in clean_dir output_dir logs_dir {
 
 *ssc install prodest
 
-log using "$logs_dir/03_tfp_prodest_`c(current_date)'.log", replace text
+log using "$logs_dir/04_tfp_prodest_`c(current_date)'.log", replace text
 
 *------------------------------------------------------------------------------*
 * Load cleaned panel
 *------------------------------------------------------------------------------*
 
-use "$clean_dir/panel_eam_clean.dta", clear
+use "$clean_dir/panel_eam_harmonized.dta", clear
 
 * Keep only observations valid for TFP estimation
 keep if valid_for_tfp == 1
+
+* Keep only manufacturing sectors (ISIC Rev 4 divisions 10-33)
+keep if ciiu_rev4_2d >= 10 & ciiu_rev4_2d <= 33
 
 local n_obs_total = _N
 
@@ -76,25 +72,25 @@ xtset firm_id year
 *------------------------------------------------------------------------------*
 
 * Count observations by industry
-egen n_obs_industry = count(firm_id), by(ciiu_2d)
-egen n_firms_industry = count(firm_id), by(ciiu_2d year)
-egen n_periods_industry = count(firm_id), by(ciiu_2d firm_id)
+egen n_obs_industry = count(firm_id), by(ciiu_rev4_2d)
+egen n_firms_industry = count(firm_id), by(ciiu_rev4_2d year)
+egen n_periods_industry = count(firm_id), by(ciiu_rev4_2d firm_id)
 
 * Summary by industry
 preserve
-    bysort ciiu_2d firm_id: gen firm_tag = (_n == 1)
+    bysort ciiu_rev4_2d firm_id: gen firm_tag = (_n == 1)
     collapse (count) n_obs=firm_id ///
              (mean) avg_firms=n_firms_industry ///
              (sum) n_distinct_firms=firm_tag, ///
-             by(ciiu_2d)
+             by(ciiu_rev4_2d)
     
     * Label for interpretation
-    label variable ciiu_2d "CIIU 2-digit code"
+    label variable ciiu_rev4_2d "CIIU 2-digit code"
     label variable n_obs "Total observations"
     label variable avg_firms "Average firms per year"
     label variable n_distinct_firms "Distinct firms"
     
-    list ciiu_2d n_obs avg_firms n_distinct_firms, separator(0) abbreviate(20)
+    list ciiu_rev4_2d n_obs avg_firms n_distinct_firms, separator(0) abbreviate(20)
     
     * Export
     export delimited using "$output_dir/tfp_industry_summary.csv", replace
@@ -104,7 +100,7 @@ restore
 keep if n_obs_industry >= 100
 
 * Get list of industries
-levelsof ciiu_2d, local(industries) clean
+levelsof ciiu_rev4_2d, local(industries) clean
 local n_industries : word count `industries'
 
 *------------------------------------------------------------------------------*
@@ -133,7 +129,7 @@ preserve
     
     * Initialize dataset to store coefficients
     gen str10 method = ""
-    gen ciiu_2d = .
+    gen ciiu_rev4_2d = .
     gen alpha_l = .
     gen alpha_k = .
     gen alpha_m = .
@@ -146,7 +142,7 @@ preserve
     
     * Labels
     label variable method "Estimation method"
-    label variable ciiu_2d "CIIU 2-digit code"
+    label variable ciiu_rev4_2d "CIIU 2-digit code"
     label variable alpha_l "Labor coefficient"
     label variable alpha_k "Capital coefficient"
     label variable alpha_m "Intermediates coefficient"
@@ -169,7 +165,7 @@ local counter = 1
 foreach ind of local industries {
     
     preserve
-    keep if ciiu_2d == `ind'
+    keep if ciiu_rev4_2d == `ind'
     
     local n_obs_ind = _N
     quietly: distinct firm_id
@@ -238,7 +234,7 @@ foreach ind of local industries {
     *--------------------------------------------------------------------------*
     restore
     preserve
-    keep if ciiu_2d == `ind'
+    keep if ciiu_rev4_2d == `ind'
     
     capture {
         prodest ln_output, ///
@@ -284,7 +280,7 @@ foreach ind of local industries {
     *--------------------------------------------------------------------------*
     restore
     preserve
-    keep if ciiu_2d == `ind'
+    keep if ciiu_rev4_2d == `ind'
     
 	capture {
         prodest ln_output, ///
@@ -338,7 +334,7 @@ foreach ind of local industries {
             update replace ///
             keep(master match) ///
             nogenerate
-        replace omega_lp = omega_lp_temp if ciiu_2d == `ind'
+        replace omega_lp = omega_lp_temp if ciiu_rev4_2d == `ind'
         drop omega_lp_temp
         
         * Store coefficients
@@ -347,7 +343,7 @@ foreach ind of local industries {
             local new = _N + 1
             set obs `new'
             replace method = "LP" in `new'
-            replace ciiu_2d = `ind' in `new'
+            replace ciiu_rev4_2d = `ind' in `new'
             replace alpha_l = `alpha_l_lp' in `new'
             replace alpha_k = `alpha_k_lp' in `new'
             replace alpha_m = `alpha_m_lp' in `new'
@@ -367,7 +363,7 @@ foreach ind of local industries {
             update replace ///
             keep(master match) ///
             nogenerate
-        replace omega_wrdg = omega_wrdg_temp if ciiu_2d == `ind'
+        replace omega_wrdg = omega_wrdg_temp if ciiu_rev4_2d == `ind'
         drop omega_wrdg_temp
         
         * Store coefficients
@@ -376,7 +372,7 @@ foreach ind of local industries {
             local new = _N + 1
             set obs `new'
             replace method = "WRDG" in `new'
-            replace ciiu_2d = `ind' in `new'
+            replace ciiu_rev4_2d = `ind' in `new'
             replace alpha_l = `alpha_l_wrdg' in `new'
             replace alpha_k = `alpha_k_wrdg' in `new'
             replace alpha_m = `alpha_m_wrdg' in `new'
@@ -396,7 +392,7 @@ foreach ind of local industries {
             update replace ///
             keep(master match) ///
             nogenerate
-        replace omega_acf = omega_acf_temp if ciiu_2d == `ind'
+        replace omega_acf = omega_acf_temp if ciiu_rev4_2d == `ind'
         drop omega_acf_temp
         
         * Store coefficients
@@ -405,7 +401,7 @@ foreach ind of local industries {
             local new = _N + 1
             set obs `new'
             replace method = "ACF" in `new'
-            replace ciiu_2d = `ind' in `new'
+            replace ciiu_rev4_2d = `ind' in `new'
             replace alpha_l = `alpha_l_acf' in `new'
             replace alpha_k = `alpha_k_acf' in `new'
             replace alpha_m = `alpha_m_acf' in `new'
@@ -431,7 +427,7 @@ preserve
     drop if method == ""
     
     * Sort by industry and method
-    sort ciiu_2d method
+    sort ciiu_rev4_2d method
 
     * Export
     export delimited using "$output_dir/tfp_coefficients_by_method.csv", replace
@@ -487,7 +483,7 @@ preserve
     collapse (mean) mean_tfp_lp=omega_lp mean_tfp_wrdg=omega_wrdg mean_tfp_acf=omega_acf ///
              (sd) sd_tfp_lp=omega_lp sd_tfp_wrdg=omega_wrdg sd_tfp_acf=omega_acf ///
              (count) n_obs=omega_lp, ///
-             by(ciiu_2d year)
+             by(ciiu_rev4_2d year)
     
     export delimited using "$output_dir/tfp_by_industry_year.csv", replace
 restore
@@ -498,7 +494,7 @@ restore
 
 preserve
     * Reshape to compare methods
-    keep firm_id year ciiu_2d omega_lp omega_wrdg omega_acf
+    keep firm_id year ciiu_rev4_2d omega_lp omega_wrdg omega_acf
     
     * Only keep complete observations
     keep if !missing(omega_lp, omega_wrdg, omega_acf)
@@ -516,7 +512,7 @@ preserve
                   sd_diff_lp_acf=diff_lp_acf ///
                   sd_diff_wrdg_acf=diff_wrdg_acf ///
              (count) n_obs=diff_lp_wrdg, ///
-             by(ciiu_2d)
+             by(ciiu_rev4_2d)
     
     export delimited using "$output_dir/tfp_method_comparison.csv", replace
 restore
