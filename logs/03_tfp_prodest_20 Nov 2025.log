@@ -1,0 +1,2823 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/03_tfp_prodest_20 Nov 2025.log
+  log type:  text
+ opened on:  20 Nov 2025, 00:11:51
+
+. 
+. *------------------------------------------------------------------------------*
+. * Load cleaned panel
+. *------------------------------------------------------------------------------*
+. 
+. use "$clean_dir/panel_eam_clean.dta", clear
+
+. 
+. * Keep only observations valid for TFP estimation
+. keep if valid_for_tfp == 1
+(27,963 observations deleted)
+
+. 
+. local n_obs_total = _N
+
+. 
+. * Set panel structure
+. xtset firm_id year
+
+Panel variable: firm_id (unbalanced)
+ Time variable: year, 1993 to 2023, but with gaps
+         Delta: 1 unit
+
+. 
+. *------------------------------------------------------------------------------*
+. * Identify industries with sufficient observations
+. *------------------------------------------------------------------------------*
+. 
+. * Count observations by industry
+. egen n_obs_industry = count(firm_id), by(ciiu_2d)
+
+. egen n_firms_industry = count(firm_id), by(ciiu_2d year)
+
+. egen n_periods_industry = count(firm_id), by(ciiu_2d firm_id)
+
+. 
+. * Summary by industry
+. preserve
+
+.     bysort ciiu_2d firm_id: gen firm_tag = (_n == 1)
+
+.     collapse (count) n_obs=firm_id ///
+>              (mean) avg_firms=n_firms_industry ///
+>              (sum) n_distinct_firms=firm_tag, ///
+>              by(ciiu_2d)
+
+.     
+.     * Label for interpretation
+.     label variable ciiu_2d "CIIU 2-digit code"
+
+.     label variable n_obs "Total observations"
+
+.     label variable avg_firms "Average firms per year"
+
+.     label variable n_distinct_firms "Distinct firms"
+
+.     
+.     list ciiu_2d n_obs avg_firms n_distinct_firms, separator(0) abbreviate(20)
+
+     +------------------------------------------------+
+     | ciiu_2d   n_obs   avg_firms   n_distinct_firms |
+     |------------------------------------------------|
+  1. |      10   17022    1424.475               1896 |
+  2. |      11    1010     87.9901                150 |
+  3. |      13    2920     246.676                365 |
+  4. |      14    9364     798.579               1127 |
+  5. |      15   17588    1141.442               2844 |
+  6. |      16    1795    150.9175                252 |
+  7. |      17    4727    238.3218                764 |
+  8. |      18   12451    596.0671               2165 |
+  9. |      19    3930    223.9013                726 |
+ 10. |      20    7464    455.7998                965 |
+ 11. |      21    4174    186.1543                597 |
+ 12. |      22   12106    567.6243               1723 |
+ 13. |      23    5423    411.6605                725 |
+ 14. |      24    7714    471.7615               1196 |
+ 15. |      25   12561    560.9467               1853 |
+ 16. |      26    3859    343.2477                648 |
+ 17. |      27    3259    146.1543                470 |
+ 18. |      28    9342    429.0238               1480 |
+ 19. |      29    5840    310.6911                986 |
+ 20. |      30     367    28.81471                 66 |
+ 21. |      31    9613      529.78               2280 |
+ 22. |      32   11047    811.6789               2977 |
+ 23. |      33    1441    201.1568                546 |
+ 24. |      34    2965    260.2499                864 |
+ 25. |      35    3816    578.1431               1210 |
+ 26. |      36   10209    744.1823               2268 |
+ 27. |      37     398     67.1407                137 |
+ 28. |      38    4048     971.664               1570 |
+ 29. |      39    1301    186.8078                518 |
+ 30. |      58     145         145                145 |
+ 31. |      59       4           4                  4 |
+ 32. |      73       8           8                  8 |
+     +------------------------------------------------+
+
+.     
+.     * Export
+.     export delimited using "$output_dir/tfp_industry_summary.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/tfp_industry_summary.csv saved
+
+. restore
+
+. 
+. * Keep industries with at least 100 observations
+. keep if n_obs_industry >= 100
+(12 observations deleted)
+
+. 
+. * Get list of industries
+. levelsof ciiu_2d, local(industries) clean
+10 11 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 58
+
+. local n_industries : word count `industries'
+
+. 
+. *------------------------------------------------------------------------------*
+. * Initialize TFP variables for multiple methods
+. *------------------------------------------------------------------------------*
+. 
+. * Levinsohn-Petrin
+. gen omega_lp = .
+(187,899 missing values generated)
+
+. label variable omega_lp "TFP (Levinsohn-Petrin 2003)"
+
+. 
+. * Wooldridge  
+. gen omega_wrdg = .
+(187,899 missing values generated)
+
+. label variable omega_wrdg "TFP (Wooldridge 2009)"
+
+. 
+. * Ackerberg-Caves-Frazer
+. gen omega_acf = .
+(187,899 missing values generated)
+
+. label variable omega_acf "TFP (Ackerberg-Caves-Frazer 2015)"
+
+. 
+. *------------------------------------------------------------------------------*
+. * Storage for production function coefficients
+. *------------------------------------------------------------------------------*
+. 
+. tempfile coef_storage
+
+. preserve
+
+.     clear
+
+.     
+.     * Initialize dataset to store coefficients
+.     gen str10 method = ""
+
+.     gen ciiu_2d = .
+
+.     gen alpha_l = .
+
+.     gen alpha_k = .
+
+.     gen alpha_m = .
+
+.     gen se_l = .
+
+.     gen se_k = .
+
+.     gen se_m = .
+
+.     gen n_obs = .
+
+.     gen n_firms = .
+
+.     gen converged = 0
+
+.     
+.     * Labels
+.     label variable method "Estimation method"
+
+.     label variable ciiu_2d "CIIU 2-digit code"
+
+.     label variable alpha_l "Labor coefficient"
+
+.     label variable alpha_k "Capital coefficient"
+
+.     label variable alpha_m "Intermediates coefficient"
+
+.     label variable se_l "SE(Labor)"
+
+.     label variable se_k "SE(Capital)"
+
+.     label variable se_m "SE(Intermediates)"
+
+.     label variable n_obs "Observations"
+
+.     label variable n_firms "Number of firms"
+
+.     label variable converged "Convergence indicator"
+
+.     
+.     save `coef_storage', replace
+(dataset contains 0 observations)
+(file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp not found)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+. restore
+
+. 
+. *------------------------------------------------------------------------------*
+. * Estimate TFP by industry using multiple methods
+. *------------------------------------------------------------------------------*
+. 
+. * Loop over industries
+. local counter = 1
+
+. foreach ind of local industries {
+  2.     
+.     preserve
+  3.     keep if ciiu_2d == `ind'
+  4.     
+.     local n_obs_ind = _N
+  5.     quietly: distinct firm_id
+  6.     local n_firms_ind = r(ndistinct)
+  7.     
+.     * Verify we have variation
+.     quietly: summarize ln_output
+  8.     if r(sd) < 0.01 | r(N) < 100 {
+  9.         restore
+ 10.         local counter = `counter' + 1
+ 11.         continue
+ 12.     }
+ 13.     
+.     * Initialize convergence flags
+.     local lp_converged = 0
+ 14.     local wrdg_converged = 0
+ 15.     local acf_converged = 0
+ 16.     
+.     *--------------------------------------------------------------------------*
+.     * METHOD 1: Levinsohn-Petrin (2003)
+.     *--------------------------------------------------------------------------*    
+.     capture {
+ 17.         prodest ln_output, ///
+>             free(ln_labor) ///
+>             state(ln_capital) ///
+>             proxy(ln_intermediates) ///
+>             method(lp) ///
+>             poly(3) ///
+>             va ///
+>             opt(bfgs) ///
+>             maxiter(500) ///
+>             id(firm_id) ///
+>             t(year)
+ 18.         
+.         * Check convergence
+.         if _rc == 0 {
+ 19.             local lp_converged = 1
+ 20.             
+.             * Store coefficients
+.             matrix b_lp = e(b)
+ 21.             local alpha_l_lp = b_lp[1,1]
+ 22.             local alpha_k_lp = b_lp[1,2]
+ 23.             local alpha_m_lp = b_lp[1,3]
+ 24.             
+.             * Standard errors
+.             matrix V_lp = e(V)
+ 25.             local se_l_lp = sqrt(V_lp[1,1])
+ 26.             local se_k_lp = sqrt(V_lp[2,2])
+ 27.             local se_m_lp = sqrt(V_lp[3,3])
+ 28.             
+.             * Get TFP predictions
+.             predict double omega_lp_temp, residuals
+ 29.             
+.             * Store in main dataset
+.             tempfile temp_lp
+ 30.             keep firm_id year omega_lp_temp
+ 31.             save `temp_lp'
+ 32.         }
+ 33.     }
+ 34.     
+.     *--------------------------------------------------------------------------*
+.     * METHOD 2: Wooldridge (2009)
+.     *--------------------------------------------------------------------------*
+.     *--------------------------------------------------------------------------*
+.     * METHOD 2: Wooldridge (2009)
+.     *--------------------------------------------------------------------------*
+.     restore
+ 35.     preserve
+ 36.     keep if ciiu_2d == `ind'
+ 37.     
+.     capture {
+ 38.         prodest ln_output, ///
+>             free(ln_labor) ///
+>             state(ln_capital) ///
+>             proxy(ln_intermediates) ///
+>             method(wrdg) ///
+>             poly(3) ///
+>             va ///
+>             opt(bfgs) ///
+>             maxiter(500) ///
+>             id(firm_id) ///
+>             t(year)
+ 39.         
+.         * Check convergence
+.         if _rc == 0 {
+ 40.             local wrdg_converged = 1
+ 41.             
+.             * Store coefficients
+.             matrix b_wrdg = e(b)
+ 42.             local alpha_l_wrdg = b_wrdg[1,1]
+ 43.             local alpha_k_wrdg = b_wrdg[1,2]
+ 44.             local alpha_m_wrdg = b_wrdg[1,3]
+ 45.             
+.             * Standard errors
+.             matrix V_wrdg = e(V)
+ 46.             local se_l_wrdg = sqrt(V_wrdg[1,1])
+ 47.             local se_k_wrdg = sqrt(V_wrdg[2,2])
+ 48.             local se_m_wrdg = sqrt(V_wrdg[3,3])
+ 49.             
+.             * Get TFP predictions
+.             predict double omega_wrdg_temp, residuals
+ 50.             
+.             * Store in tempfile
+.             tempfile temp_wrdg
+ 51.             keep firm_id year omega_wrdg_temp
+ 52.             save `temp_wrdg', replace
+ 53.         }
+ 54.     }
+ 55.     
+.     *--------------------------------------------------------------------------*
+.     * METHOD 3: Ackerberg-Caves-Frazer (2015)
+.     *--------------------------------------------------------------------------*
+.     restore
+ 56.     preserve
+ 57.     keep if ciiu_2d == `ind'
+ 58.     
+.         capture {
+ 59.         prodest ln_output, ///
+>             free(ln_labor) ///
+>             state(ln_capital) ///
+>             proxy(ln_intermediates) ///
+>             method(lp) ///
+>             acf ///
+>             poly(3) ///
+>             va ///
+>             opt(bfgs) ///
+>             maxiter(500) ///
+>             id(firm_id) ///
+>             t(year)
+ 60.         
+.         * Check convergence
+.         if _rc == 0 {
+ 61.             local acf_converged = 1
+ 62.             
+.             * Store coefficients
+.             matrix b_acf = e(b)
+ 63.             local alpha_l_acf = b_acf[1,1]
+ 64.             local alpha_k_acf = b_acf[1,2]
+ 65.             local alpha_m_acf = b_acf[1,3]
+ 66.             
+.             * Standard errors
+.             matrix V_acf = e(V)
+ 67.             local se_l_acf = sqrt(V_acf[1,1])
+ 68.             local se_k_acf = sqrt(V_acf[2,2])
+ 69.             local se_m_acf = sqrt(V_acf[3,3])
+ 70.             
+.             * Get TFP predictions
+.             predict double omega_acf_temp, residuals
+ 71.             
+.             * Store in main dataset
+.             tempfile temp_acf
+ 72.             keep firm_id year omega_acf_temp
+ 73.             save `temp_acf'
+ 74.         }
+ 75.     }
+ 76.     
+.     *--------------------------------------------------------------------------*
+.     * Store coefficients
+.     *--------------------------------------------------------------------------*
+.     
+.     restore
+ 77.     
+.     * Merge LP results
+.     if `lp_converged' == 1 {
+ 78.         merge 1:1 firm_id year using `temp_lp', ///
+>             update replace ///
+>             keep(master match) ///
+>             nogenerate
+ 79.         replace omega_lp = omega_lp_temp if ciiu_2d == `ind'
+ 80.         drop omega_lp_temp
+ 81.         
+.         * Store coefficients
+.         preserve
+ 82.             use `coef_storage', clear
+ 83.             local new = _N + 1
+ 84.             set obs `new'
+ 85.             replace method = "LP" in `new'
+ 86.             replace ciiu_2d = `ind' in `new'
+ 87.             replace alpha_l = `alpha_l_lp' in `new'
+ 88.             replace alpha_k = `alpha_k_lp' in `new'
+ 89.             replace alpha_m = `alpha_m_lp' in `new'
+ 90.             replace se_l = `se_l_lp' in `new'
+ 91.             replace se_k = `se_k_lp' in `new'
+ 92.             replace se_m = `se_m_lp' in `new'
+ 93.             replace n_obs = `n_obs_ind' in `new'
+ 94.             replace n_firms = `n_firms_ind' in `new'
+ 95.             replace converged = 1 in `new'
+ 96.             save `coef_storage', replace
+ 97.         restore
+ 98.     }
+ 99.     
+.     * Merge Wooldridge results
+.     if `wrdg_converged' == 1 {
+100.         merge 1:1 firm_id year using `temp_wrdg', ///
+>             update replace ///
+>             keep(master match) ///
+>             nogenerate
+101.         replace omega_wrdg = omega_wrdg_temp if ciiu_2d == `ind'
+102.         drop omega_wrdg_temp
+103.         
+.         * Store coefficients
+.         preserve
+104.             use `coef_storage', clear
+105.             local new = _N + 1
+106.             set obs `new'
+107.             replace method = "WRDG" in `new'
+108.             replace ciiu_2d = `ind' in `new'
+109.             replace alpha_l = `alpha_l_wrdg' in `new'
+110.             replace alpha_k = `alpha_k_wrdg' in `new'
+111.             replace alpha_m = `alpha_m_wrdg' in `new'
+112.             replace se_l = `se_l_wrdg' in `new'
+113.             replace se_k = `se_k_wrdg' in `new'
+114.             replace se_m = `se_m_wrdg' in `new'
+115.             replace n_obs = `n_obs_ind' in `new'
+116.             replace n_firms = `n_firms_ind' in `new'
+117.             replace converged = 1 in `new'
+118.             save `coef_storage', replace
+119.         restore
+120.     }
+121.     
+.     * Merge ACF results
+.     if `acf_converged' == 1 {
+122.         merge 1:1 firm_id year using `temp_acf', ///
+>             update replace ///
+>             keep(master match) ///
+>             nogenerate
+123.         replace omega_acf = omega_acf_temp if ciiu_2d == `ind'
+124.         drop omega_acf_temp
+125.         
+.         * Store coefficients
+.         preserve
+126.             use `coef_storage', clear
+127.             local new = _N + 1
+128.             set obs `new'
+129.             replace method = "ACF" in `new'
+130.             replace ciiu_2d = `ind' in `new'
+131.             replace alpha_l = `alpha_l_acf' in `new'
+132.             replace alpha_k = `alpha_k_acf' in `new'
+133.             replace alpha_m = `alpha_m_acf' in `new'
+134.             replace se_l = `se_l_acf' in `new'
+135.             replace se_k = `se_k_acf' in `new'
+136.             replace se_m = `se_m_acf' in `new'
+137.             replace n_obs = `n_obs_ind' in `new'
+138.             replace n_firms = `n_firms_ind' in `new'
+139.             replace converged = 1 in `new'
+140.             save `coef_storage', replace
+141.         restore
+142.     }
+143.     
+.     local counter = `counter' + 1
+144. }
+(170,877 observations deleted)
+(170,877 observations deleted)
+(170,877 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       170,877
+        from master                   170,877  
+        from using                          0  
+
+    Matched                            17,022
+        not updated                    17,022  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(17,022 real changes made)
+Number of observations (_N) was 0, now 1.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       170,877
+        from master                   170,877  
+        from using                          0  
+
+    Matched                            17,022
+        not updated                    17,022  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(17,022 real changes made)
+Number of observations (_N) was 1, now 2.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       170,877
+        from master                   170,877  
+        from using                          0  
+
+    Matched                            17,022
+        not updated                    17,022  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(17,022 real changes made)
+Number of observations (_N) was 2, now 3.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(186,889 observations deleted)
+(186,889 observations deleted)
+(186,889 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,889
+        from master                   186,889  
+        from using                          0  
+
+    Matched                             1,010
+        not updated                     1,010  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,010 real changes made)
+Number of observations (_N) was 3, now 4.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,889
+        from master                   186,889  
+        from using                          0  
+
+    Matched                             1,010
+        not updated                     1,010  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,010 real changes made)
+Number of observations (_N) was 4, now 5.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,889
+        from master                   186,889  
+        from using                          0  
+
+    Matched                             1,010
+        not updated                     1,010  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,010 real changes made)
+Number of observations (_N) was 5, now 6.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(184,979 observations deleted)
+(184,979 observations deleted)
+(184,979 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,979
+        from master                   184,979  
+        from using                          0  
+
+    Matched                             2,920
+        not updated                     2,920  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(2,920 real changes made)
+Number of observations (_N) was 6, now 7.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,979
+        from master                   184,979  
+        from using                          0  
+
+    Matched                             2,920
+        not updated                     2,920  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(2,920 real changes made)
+Number of observations (_N) was 7, now 8.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(178,535 observations deleted)
+(178,535 observations deleted)
+(178,535 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,535
+        from master                   178,535  
+        from using                          0  
+
+    Matched                             9,364
+        not updated                     9,364  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,364 real changes made)
+Number of observations (_N) was 8, now 9.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,535
+        from master                   178,535  
+        from using                          0  
+
+    Matched                             9,364
+        not updated                     9,364  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,364 real changes made)
+Number of observations (_N) was 9, now 10.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,535
+        from master                   178,535  
+        from using                          0  
+
+    Matched                             9,364
+        not updated                     9,364  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,364 real changes made)
+Number of observations (_N) was 10, now 11.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(170,311 observations deleted)
+(170,311 observations deleted)
+(170,311 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       170,311
+        from master                   170,311  
+        from using                          0  
+
+    Matched                            17,588
+        not updated                    17,588  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(17,588 real changes made)
+Number of observations (_N) was 11, now 12.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       170,311
+        from master                   170,311  
+        from using                          0  
+
+    Matched                            17,588
+        not updated                    17,588  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(17,588 real changes made)
+Number of observations (_N) was 12, now 13.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       170,311
+        from master                   170,311  
+        from using                          0  
+
+    Matched                            17,588
+        not updated                    17,588  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(17,588 real changes made)
+Number of observations (_N) was 13, now 14.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(186,104 observations deleted)
+(186,104 observations deleted)
+(186,104 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,104
+        from master                   186,104  
+        from using                          0  
+
+    Matched                             1,795
+        not updated                     1,795  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,795 real changes made)
+Number of observations (_N) was 14, now 15.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,104
+        from master                   186,104  
+        from using                          0  
+
+    Matched                             1,795
+        not updated                     1,795  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,795 real changes made)
+Number of observations (_N) was 15, now 16.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(183,172 observations deleted)
+(183,172 observations deleted)
+(183,172 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,172
+        from master                   183,172  
+        from using                          0  
+
+    Matched                             4,727
+        not updated                     4,727  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,727 real changes made)
+Number of observations (_N) was 16, now 17.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,172
+        from master                   183,172  
+        from using                          0  
+
+    Matched                             4,727
+        not updated                     4,727  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,727 real changes made)
+Number of observations (_N) was 17, now 18.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(175,448 observations deleted)
+(175,448 observations deleted)
+(175,448 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,448
+        from master                   175,448  
+        from using                          0  
+
+    Matched                            12,451
+        not updated                    12,451  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,451 real changes made)
+Number of observations (_N) was 18, now 19.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,448
+        from master                   175,448  
+        from using                          0  
+
+    Matched                            12,451
+        not updated                    12,451  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,451 real changes made)
+Number of observations (_N) was 19, now 20.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,448
+        from master                   175,448  
+        from using                          0  
+
+    Matched                            12,451
+        not updated                    12,451  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,451 real changes made)
+Number of observations (_N) was 20, now 21.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(183,969 observations deleted)
+(183,969 observations deleted)
+(183,969 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,969
+        from master                   183,969  
+        from using                          0  
+
+    Matched                             3,930
+        not updated                     3,930  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,930 real changes made)
+Number of observations (_N) was 21, now 22.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,969
+        from master                   183,969  
+        from using                          0  
+
+    Matched                             3,930
+        not updated                     3,930  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,930 real changes made)
+Number of observations (_N) was 22, now 23.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,969
+        from master                   183,969  
+        from using                          0  
+
+    Matched                             3,930
+        not updated                     3,930  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,930 real changes made)
+Number of observations (_N) was 23, now 24.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(180,435 observations deleted)
+(180,435 observations deleted)
+(180,435 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       180,435
+        from master                   180,435  
+        from using                          0  
+
+    Matched                             7,464
+        not updated                     7,464  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(7,464 real changes made)
+Number of observations (_N) was 24, now 25.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       180,435
+        from master                   180,435  
+        from using                          0  
+
+    Matched                             7,464
+        not updated                     7,464  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(7,464 real changes made)
+Number of observations (_N) was 25, now 26.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(183,725 observations deleted)
+(183,725 observations deleted)
+(183,725 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,725
+        from master                   183,725  
+        from using                          0  
+
+    Matched                             4,174
+        not updated                     4,174  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,174 real changes made)
+Number of observations (_N) was 26, now 27.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,725
+        from master                   183,725  
+        from using                          0  
+
+    Matched                             4,174
+        not updated                     4,174  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,174 real changes made)
+Number of observations (_N) was 27, now 28.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,725
+        from master                   183,725  
+        from using                          0  
+
+    Matched                             4,174
+        not updated                     4,174  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,174 real changes made)
+Number of observations (_N) was 28, now 29.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(175,793 observations deleted)
+(175,793 observations deleted)
+(175,793 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,793
+        from master                   175,793  
+        from using                          0  
+
+    Matched                            12,106
+        not updated                    12,106  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,106 real changes made)
+Number of observations (_N) was 29, now 30.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,793
+        from master                   175,793  
+        from using                          0  
+
+    Matched                            12,106
+        not updated                    12,106  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,106 real changes made)
+Number of observations (_N) was 30, now 31.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(182,476 observations deleted)
+(182,476 observations deleted)
+(182,476 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       182,476
+        from master                   182,476  
+        from using                          0  
+
+    Matched                             5,423
+        not updated                     5,423  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(5,423 real changes made)
+Number of observations (_N) was 31, now 32.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       182,476
+        from master                   182,476  
+        from using                          0  
+
+    Matched                             5,423
+        not updated                     5,423  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(5,423 real changes made)
+Number of observations (_N) was 32, now 33.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       182,476
+        from master                   182,476  
+        from using                          0  
+
+    Matched                             5,423
+        not updated                     5,423  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(5,423 real changes made)
+Number of observations (_N) was 33, now 34.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(180,185 observations deleted)
+(180,185 observations deleted)
+(180,185 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       180,185
+        from master                   180,185  
+        from using                          0  
+
+    Matched                             7,714
+        not updated                     7,714  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(7,714 real changes made)
+Number of observations (_N) was 34, now 35.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       180,185
+        from master                   180,185  
+        from using                          0  
+
+    Matched                             7,714
+        not updated                     7,714  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(7,714 real changes made)
+Number of observations (_N) was 35, now 36.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       180,185
+        from master                   180,185  
+        from using                          0  
+
+    Matched                             7,714
+        not updated                     7,714  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(7,714 real changes made)
+Number of observations (_N) was 36, now 37.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(175,338 observations deleted)
+(175,338 observations deleted)
+(175,338 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,338
+        from master                   175,338  
+        from using                          0  
+
+    Matched                            12,561
+        not updated                    12,561  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,561 real changes made)
+Number of observations (_N) was 37, now 38.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,338
+        from master                   175,338  
+        from using                          0  
+
+    Matched                            12,561
+        not updated                    12,561  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,561 real changes made)
+Number of observations (_N) was 38, now 39.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       175,338
+        from master                   175,338  
+        from using                          0  
+
+    Matched                            12,561
+        not updated                    12,561  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(12,561 real changes made)
+Number of observations (_N) was 39, now 40.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(184,040 observations deleted)
+(184,040 observations deleted)
+(184,040 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,040
+        from master                   184,040  
+        from using                          0  
+
+    Matched                             3,859
+        not updated                     3,859  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,859 real changes made)
+Number of observations (_N) was 40, now 41.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,040
+        from master                   184,040  
+        from using                          0  
+
+    Matched                             3,859
+        not updated                     3,859  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,859 real changes made)
+Number of observations (_N) was 41, now 42.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,040
+        from master                   184,040  
+        from using                          0  
+
+    Matched                             3,859
+        not updated                     3,859  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,859 real changes made)
+Number of observations (_N) was 42, now 43.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(184,640 observations deleted)
+(184,640 observations deleted)
+(184,640 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,640
+        from master                   184,640  
+        from using                          0  
+
+    Matched                             3,259
+        not updated                     3,259  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,259 real changes made)
+Number of observations (_N) was 43, now 44.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,640
+        from master                   184,640  
+        from using                          0  
+
+    Matched                             3,259
+        not updated                     3,259  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,259 real changes made)
+Number of observations (_N) was 44, now 45.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,640
+        from master                   184,640  
+        from using                          0  
+
+    Matched                             3,259
+        not updated                     3,259  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,259 real changes made)
+Number of observations (_N) was 45, now 46.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(178,557 observations deleted)
+(178,557 observations deleted)
+(178,557 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,557
+        from master                   178,557  
+        from using                          0  
+
+    Matched                             9,342
+        not updated                     9,342  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,342 real changes made)
+Number of observations (_N) was 46, now 47.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,557
+        from master                   178,557  
+        from using                          0  
+
+    Matched                             9,342
+        not updated                     9,342  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,342 real changes made)
+Number of observations (_N) was 47, now 48.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,557
+        from master                   178,557  
+        from using                          0  
+
+    Matched                             9,342
+        not updated                     9,342  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,342 real changes made)
+Number of observations (_N) was 48, now 49.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(182,059 observations deleted)
+(182,059 observations deleted)
+(182,059 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       182,059
+        from master                   182,059  
+        from using                          0  
+
+    Matched                             5,840
+        not updated                     5,840  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(5,840 real changes made)
+Number of observations (_N) was 49, now 50.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       182,059
+        from master                   182,059  
+        from using                          0  
+
+    Matched                             5,840
+        not updated                     5,840  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(5,840 real changes made)
+Number of observations (_N) was 50, now 51.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(187,532 observations deleted)
+(187,532 observations deleted)
+(187,532 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       187,532
+        from master                   187,532  
+        from using                          0  
+
+    Matched                               367
+        not updated                       367  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(367 real changes made)
+Number of observations (_N) was 51, now 52.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       187,532
+        from master                   187,532  
+        from using                          0  
+
+    Matched                               367
+        not updated                       367  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(367 real changes made)
+Number of observations (_N) was 52, now 53.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       187,532
+        from master                   187,532  
+        from using                          0  
+
+    Matched                               367
+        not updated                       367  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(367 real changes made)
+Number of observations (_N) was 53, now 54.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(178,286 observations deleted)
+(178,286 observations deleted)
+(178,286 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,286
+        from master                   178,286  
+        from using                          0  
+
+    Matched                             9,613
+        not updated                     9,613  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,613 real changes made)
+Number of observations (_N) was 54, now 55.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,286
+        from master                   178,286  
+        from using                          0  
+
+    Matched                             9,613
+        not updated                     9,613  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,613 real changes made)
+Number of observations (_N) was 55, now 56.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       178,286
+        from master                   178,286  
+        from using                          0  
+
+    Matched                             9,613
+        not updated                     9,613  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(9,613 real changes made)
+Number of observations (_N) was 56, now 57.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(176,852 observations deleted)
+(176,852 observations deleted)
+(176,852 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       176,852
+        from master                   176,852  
+        from using                          0  
+
+    Matched                            11,047
+        not updated                    11,047  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(11,047 real changes made)
+Number of observations (_N) was 57, now 58.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       176,852
+        from master                   176,852  
+        from using                          0  
+
+    Matched                            11,047
+        not updated                    11,047  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(11,047 real changes made)
+Number of observations (_N) was 58, now 59.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       176,852
+        from master                   176,852  
+        from using                          0  
+
+    Matched                            11,047
+        not updated                    11,047  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(11,047 real changes made)
+Number of observations (_N) was 59, now 60.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(186,458 observations deleted)
+(186,458 observations deleted)
+(186,458 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,458
+        from master                   186,458  
+        from using                          0  
+
+    Matched                             1,441
+        not updated                     1,441  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,441 real changes made)
+Number of observations (_N) was 60, now 61.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,458
+        from master                   186,458  
+        from using                          0  
+
+    Matched                             1,441
+        not updated                     1,441  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,441 real changes made)
+Number of observations (_N) was 61, now 62.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(184,934 observations deleted)
+(184,934 observations deleted)
+(184,934 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,934
+        from master                   184,934  
+        from using                          0  
+
+    Matched                             2,965
+        not updated                     2,965  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(2,965 real changes made)
+Number of observations (_N) was 62, now 63.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,934
+        from master                   184,934  
+        from using                          0  
+
+    Matched                             2,965
+        not updated                     2,965  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(2,965 real changes made)
+Number of observations (_N) was 63, now 64.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,934
+        from master                   184,934  
+        from using                          0  
+
+    Matched                             2,965
+        not updated                     2,965  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(2,965 real changes made)
+Number of observations (_N) was 64, now 65.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(184,083 observations deleted)
+(184,083 observations deleted)
+(184,083 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,083
+        from master                   184,083  
+        from using                          0  
+
+    Matched                             3,816
+        not updated                     3,816  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,816 real changes made)
+Number of observations (_N) was 65, now 66.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,083
+        from master                   184,083  
+        from using                          0  
+
+    Matched                             3,816
+        not updated                     3,816  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,816 real changes made)
+Number of observations (_N) was 66, now 67.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       184,083
+        from master                   184,083  
+        from using                          0  
+
+    Matched                             3,816
+        not updated                     3,816  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(3,816 real changes made)
+Number of observations (_N) was 67, now 68.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(177,690 observations deleted)
+(177,690 observations deleted)
+(177,690 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       177,690
+        from master                   177,690  
+        from using                          0  
+
+    Matched                            10,209
+        not updated                    10,209  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(10,209 real changes made)
+Number of observations (_N) was 68, now 69.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       177,690
+        from master                   177,690  
+        from using                          0  
+
+    Matched                            10,209
+        not updated                    10,209  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(10,209 real changes made)
+Number of observations (_N) was 69, now 70.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       177,690
+        from master                   177,690  
+        from using                          0  
+
+    Matched                            10,209
+        not updated                    10,209  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(10,209 real changes made)
+Number of observations (_N) was 70, now 71.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(187,501 observations deleted)
+(187,501 observations deleted)
+(187,501 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       187,501
+        from master                   187,501  
+        from using                          0  
+
+    Matched                               398
+        not updated                       398  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(398 real changes made)
+Number of observations (_N) was 71, now 72.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       187,501
+        from master                   187,501  
+        from using                          0  
+
+    Matched                               398
+        not updated                       398  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(398 real changes made)
+Number of observations (_N) was 72, now 73.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       187,501
+        from master                   187,501  
+        from using                          0  
+
+    Matched                               398
+        not updated                       398  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(398 real changes made)
+Number of observations (_N) was 73, now 74.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(183,851 observations deleted)
+(183,851 observations deleted)
+(183,851 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,851
+        from master                   183,851  
+        from using                          0  
+
+    Matched                             4,048
+        not updated                     4,048  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,048 real changes made)
+Number of observations (_N) was 74, now 75.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,851
+        from master                   183,851  
+        from using                          0  
+
+    Matched                             4,048
+        not updated                     4,048  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,048 real changes made)
+Number of observations (_N) was 75, now 76.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       183,851
+        from master                   183,851  
+        from using                          0  
+
+    Matched                             4,048
+        not updated                     4,048  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(4,048 real changes made)
+Number of observations (_N) was 76, now 77.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(186,598 observations deleted)
+(186,598 observations deleted)
+(186,598 observations deleted)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,598
+        from master                   186,598  
+        from using                          0  
+
+    Matched                             1,301
+        not updated                     1,301  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,301 real changes made)
+Number of observations (_N) was 77, now 78.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,598
+        from master                   186,598  
+        from using                          0  
+
+    Matched                             1,301
+        not updated                     1,301  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,301 real changes made)
+Number of observations (_N) was 78, now 79.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                       186,598
+        from master                   186,598  
+        from using                          0  
+
+    Matched                             1,301
+        not updated                     1,301  
+        missing updated                     0  
+        nonmissing conflict                 0  
+    -----------------------------------------
+(1,301 real changes made)
+Number of observations (_N) was 79, now 80.
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(0 real changes made)
+(1 real change made)
+(1 real change made)
+(1 real change made)
+file C:\Users\dafrb\AppData\Local\Temp\ST_32a4_000003.tmp saved as .dta format
+(187,754 observations deleted)
+(187,754 observations deleted)
+(187,754 observations deleted)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Export coefficients
+. *------------------------------------------------------------------------------*
+. 
+. preserve
+
+.     use `coef_storage', clear
+
+.     drop if method == ""
+(0 observations deleted)
+
+.     
+.     * Sort by industry and method
+.     sort ciiu_2d method
+
+. 
+.     * Export
+.     export delimited using "$output_dir/tfp_coefficients_by_method.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/tfp_coefficients_by_method.csv saved
+
+. restore
+
+. 
+. *------------------------------------------------------------------------------*
+. * TFP correlations
+. *------------------------------------------------------------------------------*
+. 
+. * Correlations between methods
+. correlate omega_lp omega_wrdg omega_acf if !missing(omega_lp, omega_wrdg, omega_acf)
+(obs=151,461)
+
+             | omega_lp omega_~g omega_~f
+-------------+---------------------------
+    omega_lp |   1.0000
+  omega_wrdg |   0.9990   1.0000
+   omega_acf |   0.4341   0.4292   1.0000
+
+
+. 
+. * Export correlation matrix
+. preserve
+
+.     correlate omega_lp omega_wrdg omega_acf if !missing(omega_lp, omega_wrdg, omega_acf)
+(obs=151,461)
+
+             | omega_lp omega_~g omega_~f
+-------------+---------------------------
+    omega_lp |   1.0000
+  omega_wrdg |   0.9990   1.0000
+   omega_acf |   0.4341   0.4292   1.0000
+
+
+.     matrix C = r(C)
+
+.     
+.     clear
+
+.     svmat C, names(col)
+number of observations will be reset to 3
+Press any key to continue, or Break to abort
+Number of observations (_N) was 0, now 3.
+
+.     
+.     gen method = ""
+(3 missing values generated)
+
+.     replace method = "LP" in 1
+variable method was str1 now str2
+(1 real change made)
+
+.     replace method = "WRDG" in 2
+variable method was str2 now str4
+(1 real change made)
+
+.     replace method = "ACF" in 3
+(1 real change made)
+
+.     
+.     order method
+
+.     
+.     export delimited using "$output_dir/tfp_correlations.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/tfp_correlations.csv saved
+
+. restore
+
+. *------------------------------------------------------------------------------*
+. * Save panel with TFP estimates
+. *------------------------------------------------------------------------------*
+. 
+. * Label all TFP variables
+. label variable omega_lp "Log TFP (Levinsohn-Petrin)"
+
+. label variable omega_wrdg "Log TFP (Wooldridge)"
+
+. label variable omega_acf "Log TFP (Ackerberg-Caves-Frazer)"
+
+. 
+. * Sort
+. sort firm_id year
+
+. 
+. * Save
+. save "$clean_dir/panel_eam_with_tfp.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/panel_eam_with_tfp.dta saved
+
+. 
+. local n_obs_final = _N
+
+. 
+. *------------------------------------------------------------------------------*
+. * Summary statistics export
+. *------------------------------------------------------------------------------*
+. 
+. * By industry-year
+. preserve
+
+.     collapse (mean) mean_tfp_lp=omega_lp mean_tfp_wrdg=omega_wrdg mean_tfp_acf=omega_acf ///
+>              (sd) sd_tfp_lp=omega_lp sd_tfp_wrdg=omega_wrdg sd_tfp_acf=omega_acf ///
+>              (count) n_obs=omega_lp, ///
+>              by(ciiu_2d year)
+
+.     
+.     export delimited using "$output_dir/tfp_by_industry_year.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/tfp_by_industry_year.csv saved
+
+. restore
+
+. 
+. *------------------------------------------------------------------------------*
+. * Comparison table
+. *------------------------------------------------------------------------------*
+. 
+. preserve
+
+.     * Reshape to compare methods
+.     keep firm_id year ciiu_2d omega_lp omega_wrdg omega_acf
+
+.     
+.     * Only keep complete observations
+.     keep if !missing(omega_lp, omega_wrdg, omega_acf)
+(36,438 observations deleted)
+
+.     
+.     * Calculate differences
+.     gen diff_lp_wrdg = omega_lp - omega_wrdg
+
+.     gen diff_lp_acf = omega_lp - omega_acf
+
+.     gen diff_wrdg_acf = omega_wrdg - omega_acf
+
+.     
+.     * Summary statistics
+.     collapse (mean) mean_diff_lp_wrdg=diff_lp_wrdg ///
+>                     mean_diff_lp_acf=diff_lp_acf ///
+>                     mean_diff_wrdg_acf=diff_wrdg_acf ///
+>              (sd) sd_diff_lp_wrdg=diff_lp_wrdg ///
+>                   sd_diff_lp_acf=diff_lp_acf ///
+>                   sd_diff_wrdg_acf=diff_wrdg_acf ///
+>              (count) n_obs=diff_lp_wrdg, ///
+>              by(ciiu_2d)
+
+.     
+.     export delimited using "$output_dir/tfp_method_comparison.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/output/tfp_method_comparison.csv saved
+
+. restore
+
+. 
+. log close
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/03_tfp_prodest_20 Nov 2025.log
+  log type:  text
+ closed on:  20 Nov 2025, 00:18:20
+----------------------------------------------------------------------------------------------------------------------------------------
