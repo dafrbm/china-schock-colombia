@@ -53,59 +53,33 @@ restore
 * PART 2: HS -> NAICS VIA R CONCORDANCE PACKAGE
 *==============================================================================*
 
-capture confirm file "$concordance_dir/hs6_naics2017_concordance.dta"
-if _rc != 0 {
-    shell Rscript "$code_dir/hs_to_naics_concordance.R" "$concordance_dir" "$concordance_dir"
-}
+*shell "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" "$code_dir/hs_to_naics_concordance.R" "$concordance_dir" "$concordance_dir"
 
 *==============================================================================*
 * PART 3: NAICS 2017 -> ISIC REV 4
 *==============================================================================*
 
 import excel "$concordance_dir/2017_NAICS_to_ISIC_4.xlsx", clear firstrow
-
 capture rename *, lower
-ds
-local vars `r(varlist)'
 
-gen naics2017 = ""
-gen isic4 = ""
-
-foreach var of local vars {
-    capture confirm numeric variable `var'
-    if _rc == 0 {
-        quietly summarize `var'
-        if r(min) >= 100000 & r(max) < 1000000 {
-            replace naics2017 = string(`var') if naics2017 == ""
-        }
-        else if r(min) >= 1000 & r(max) < 10000 {
-            replace isic4 = string(`var', "%04.0f") if isic4 == ""
-        }
-    }
-    else {
-        quietly count if regexm(`var', "^[0-9]{6}$")
-        if r(N) > _N * 0.5 {
-            replace naics2017 = `var' if naics2017 == ""
-        }
-        quietly count if regexm(`var', "^[0-9]{4}$")
-        if r(N) > _N * 0.5 {
-            replace isic4 = `var' if isic4 == ""
-        }
-    }
-}
+* Use actual variable names from file
+gen naics2017 = string(naicsus, "%06.0f")
+gen isi = real(isic40)
+gen isic4 = string(isi, "%04.0f")
 
 keep naics2017 isic4
 drop if missing(naics2017) | missing(isic4)
 duplicates drop
 
 gen isic4_4d = isic4
-gen isic4_3d = substr(isic4, 1, 3)
-gen isic4_2d = substr(isic4, 1, 2)
+gen isic4_3d = substr(isic4, 2, 3)
+gen isic4_2d = substr(isic4, 2, 2)
 
-destring naics2017, replace force
-destring isic4_4d isic4_3d isic4_2d, replace force
+*destring naics2017, replace force
+destring isic4_2d, generate(isic4_2d_num) force
 
-keep if isic4_2d >= 10 & isic4_2d <= 33
+keep if isic4_2d_num >= 10 & isic4_2d_num <= 33
+drop isic4_2d_num
 
 save "$concordance_dir/naics2017_isic4_concordance.dta", replace
 
@@ -115,11 +89,11 @@ save "$concordance_dir/naics2017_isic4_concordance.dta", replace
 
 use "$concordance_dir/hs6_naics2017_concordance.dta", clear
 
-rename naics2017 naics2017_str
-gen naics2017 = real(naics2017_str)
-drop naics2017_str hs_revision_used
+*rename naics2017 naics2017_str
+*gen naics2017 = real(naics2017_str)
+*drop naics2017_str hs_revision_used
 
-merge m:1 naics2017 using "$concordance_dir/naics2017_isic4_concordance.dta", ///
+merge m:m naics2017 using "$concordance_dir/naics2017_isic4_concordance.dta", ///
     keep(match master) nogen
 
 bysort hs6 isic4_4d: gen n_matches = _N
@@ -141,57 +115,20 @@ save "$concordance_dir/hs6_isic4_concordance.dta", replace
 *==============================================================================*
 
 * ISIC Rev 2 -> Rev 3
-import delimited "$concordance_dir/ISIC3-ISIC2.txt", clear varnames(1) delimiters("\t")
+import delimited "$concordance_dir/ISIC3-ISIC2.txt", clear varnames(1)
 
-capture rename *, lower
-ds
-local vars `r(varlist)'
-
-gen isic2 = ""
-gen isic3 = ""
-
-local col = 1
-foreach var of local vars {
-    if `col' == 1 {
-        tostring `var', replace force
-        replace isic2 = `var'
-    }
-    else if `col' == 2 {
-        tostring `var', replace force
-        replace isic3 = `var'
-    }
-    local col = `col' + 1
-}
-
-keep isic2 isic3
-drop if missing(isic2) | missing(isic3)
+keep isic3 isic2
+drop if missing(isic3) | missing(isic2)
 duplicates drop
 destring isic2 isic3, replace force
 
 save "$concordance_dir/isic2_isic3_concordance.dta", replace
 
 * ISIC Rev 3 -> Rev 3.1
-import delimited "$concordance_dir/ISIC_Rev_31-ISIC_Rev_3_correspondence.txt", clear varnames(1) delimiters("\t")
+import delimited "$concordance_dir/ISIC_Rev_31-ISIC_Rev_3_correspondence.txt", clear varnames(1)
 
-capture rename *, lower
-ds
-local vars `r(varlist)'
-
-gen isic3 = ""
-gen isic31 = ""
-
-local col = 1
-foreach var of local vars {
-    if `col' == 1 {
-        tostring `var', replace force
-        replace isic31 = `var'
-    }
-    else if `col' == 2 {
-        tostring `var', replace force
-        replace isic3 = `var'
-    }
-    local col = `col' + 1
-}
+rename rev31 isic31
+rename rev3 isic3
 
 keep isic3 isic31
 drop if missing(isic3) | missing(isic31)
@@ -201,27 +138,10 @@ destring isic3 isic31, replace force
 save "$concordance_dir/isic3_isic31_concordance.dta", replace
 
 * ISIC Rev 3.1 -> Rev 4
-import delimited "$concordance_dir/ISIC4_ISIC31.txt", clear varnames(1) delimiters("\t")
+import delimited "$concordance_dir/ISIC4_ISIC31.txt", clear varnames(1)
 
-capture rename *, lower
-ds
-local vars `r(varlist)'
-
-gen isic31 = ""
-gen isic4 = ""
-
-local col = 1
-foreach var of local vars {
-    if `col' == 1 {
-        tostring `var', replace force
-        replace isic4 = `var'
-    }
-    else if `col' == 2 {
-        tostring `var', replace force
-        replace isic31 = `var'
-    }
-    local col = `col' + 1
-}
+rename isic4code isic4
+rename isic31code isic31
 
 keep isic31 isic4
 drop if missing(isic31) | missing(isic4)
@@ -237,10 +157,10 @@ save "$concordance_dir/isic31_isic4_concordance.dta", replace
 * Rev 2 -> Rev 4 (via Rev 3 and Rev 3.1)
 use "$concordance_dir/isic2_isic3_concordance.dta", clear
 
-merge m:1 isic3 using "$concordance_dir/isic3_isic31_concordance.dta", ///
+merge m:m isic3 using "$concordance_dir/isic3_isic31_concordance.dta", ///
     keep(match master) nogen
 
-merge m:1 isic31 using "$concordance_dir/isic31_isic4_concordance.dta", ///
+merge m:m isic31 using "$concordance_dir/isic31_isic4_concordance.dta", ///
     keep(match master) nogen
 
 bysort isic2 isic4: gen n = _N
@@ -262,7 +182,7 @@ save "$concordance_dir/ciiu_rev2_to_rev4.dta", replace
 * Rev 3 -> Rev 4 (via Rev 3.1)
 use "$concordance_dir/isic3_isic31_concordance.dta", clear
 
-merge m:1 isic31 using "$concordance_dir/isic31_isic4_concordance.dta", ///
+merge m:m isic31 using "$concordance_dir/isic31_isic4_concordance.dta", ///
     keep(match master) nogen
 
 bysort isic3 isic4: gen n = _N
