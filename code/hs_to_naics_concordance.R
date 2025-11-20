@@ -15,13 +15,14 @@ if (length(args) < 2) {
   output_path <- args[2]
 }
 
-# Load HS6 codes from existing temp file
+# Load HS6 codes from existing temp file (HS6 is string to preserve leading zeros)
 hs6_naics_temp <- haven::read_dta(file.path(input_path, "hs6_naics_temp.dta"))
 hs6_codes <- unique(hs6_naics_temp$hs6)
 
 # Convert HS to NAICS (try multiple HS revisions)
 convert_hs_to_naics <- function(hs_code) {
-  hs_str <- sprintf("%06d", hs_code)
+  # hs_code is already string with leading zeros
+  hs_str <- as.character(hs_code)
 
   for (hs_rev in c("HS5", "HS4", "HS3", "HS2", "HS1", "HS0")) {
     result <- tryCatch({

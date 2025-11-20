@@ -36,7 +36,9 @@ rename refyear year
 rename cmdcode hs6
 rename primaryvalue imports_china
 
-destring year hs6 imports_china, replace force
+* Keep HS6 as string to preserve leading zeros
+tostring hs6, replace format(%06.0f) force
+destring year imports_china, replace force
 keep year hs6 imports_china
 
 collapse (sum) imports_china, by(hs6 year)
@@ -51,7 +53,9 @@ rename refyear year
 rename cmdcode hs6
 rename primaryvalue imports_total
 
-destring year hs6 imports_total, replace force
+* Keep HS6 as string to preserve leading zeros
+tostring hs6, replace format(%06.0f) force
+destring year imports_total, replace force
 keep year hs6 imports_total
 
 collapse (sum) imports_total, by(hs6 year)
@@ -107,7 +111,9 @@ rename refyear year
 rename cmdcode hs6
 rename primaryvalue trade_value_usd
 
-destring year hs6 trade_value_usd, replace force
+* Keep HS6 as string to preserve leading zeros
+tostring hs6, replace format(%06.0f) force
+destring year trade_value_usd, replace force
 keep year hs6 trade_value_usd
 
 merge m:1 hs6 using "$concordance_dir/hs6_isic4_concordance.dta", ///
@@ -135,7 +141,9 @@ rename refyear year
 rename cmdcode hs6
 rename primaryvalue trade_value_usd
 
-destring year hs6 trade_value_usd, replace force
+* Keep HS6 as string to preserve leading zeros
+tostring hs6, replace format(%06.0f) force
+destring year trade_value_usd, replace force
 keep year hs6 trade_value_usd partner_country
 
 merge m:1 hs6 using "$concordance_dir/hs6_isic4_concordance.dta", ///
