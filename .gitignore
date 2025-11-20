@@ -1,0 +1,23 @@
+# Ignorar todo por defecto
+*
+
+# Permitir carpetas específicas
+!code/
+!output/
+
+# Dentro de code, permitir solo .do y .py
+code/*
+!code/**/*.do
+!code/**/*.py
+!code/**/*.R
+
+# Dentro de output, permitir todo
+output/*
+!output/**
+
+# Ignorar datos y otros directorios
+raw_data/
+processed/
+logs/
+docs/
+temp/
