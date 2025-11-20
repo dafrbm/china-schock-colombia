@@ -49,6 +49,10 @@ global clean_dir "$main_dir/processed"
 global output_dir "$main_dir/output"
 global logs_dir "$main_dir/logs"
 
+foreach dir in clean_dir output_dir logs_dir {
+    capture mkdir "${`dir'}"
+}
+
 *ssc install prodest
 
 log using "$logs_dir/03_tfp_prodest_`c(current_date)'.log", replace text
