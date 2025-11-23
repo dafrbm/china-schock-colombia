@@ -1,0 +1,233 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/06_trade_concordances_23 Nov 2025.log
+  log type:  text
+ opened on:  23 Nov 2025, 00:20:37
+
+. 
+. *==============================================================================*
+. * PART 1: PROCESS PIERCE & SCHOTT HS -> NAICS
+. *==============================================================================*
+. 
+. use "$concordance_dir/hs_sic_naics_imports_89_123_20240801.dta", clear
+
+. 
+. *------------------------------------------------------------------------------*
+. * Extract HS6 codes preserving leading zeros
+. *------------------------------------------------------------------------------*
+. 
+. tostring commodity, gen(hs10_str) format(%010.0f) force
+hs10_str generated as str10
+
+. gen hs6_str = substr(hs10_str, 1, 6)
+
+. 
+. keep hs6_str naics year
+
+. drop if missing(hs6_str) | missing(naics) | hs6_str == "000000"
+(0 observations deleted)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Keep most frequent HS6-NAICS combinations
+. *------------------------------------------------------------------------------*
+. 
+. bysort hs6_str naics: gen n_obs = _N
+
+. bysort hs6_str: egen max_obs = max(n_obs)
+
+. keep if n_obs == max_obs
+(124,271 observations deleted)
+
+. 
+. duplicates drop hs6_str naics, force
+
+Duplicates in terms of hs6_str naics
+
+(485,517 observations deleted)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Save temp file for R concordance package
+. *------------------------------------------------------------------------------*
+. 
+. preserve
+
+.     keep hs6_str naics
+
+.     duplicates drop
+
+Duplicates in terms of all variables
+
+(0 observations are duplicates)
+
+.     rename hs6_str hs6
+
+.     save "$concordance_dir/hs6_naics_temp.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/hs6_naics_temp.dta saved
+
+. restore
+
+. 
+. *==============================================================================*
+. * PART 2: HS -> NAICS VIA R CONCORDANCE PACKAGE
+. *==============================================================================*
+. 
+. shell "C:\Program Files\R\R-4.5.1\bin\Rscript.exe" "$code_dir/hs_to_naics_concordance.R" "$concordance_dir" "$concordance_dir"
+
+. 
+. *==============================================================================*
+. * PART 3: NAICS 2017 -> ISIC REV 4
+. *==============================================================================*
+. 
+. import excel "$concordance_dir/2017_NAICS_to_ISIC_4.xlsx", clear firstrow
+(9 vars, 1,655 obs)
+
+. capture rename *, lower
+
+. 
+. *------------------------------------------------------------------------------*
+. * Parse NAICS and ISIC codes
+. *------------------------------------------------------------------------------*
+. 
+. gen naics2017 = string(naicsus, "%06.0f")
+
+. gen isi = real(isic40)
+(1 missing value generated)
+
+. gen isic4 = string(isi, "%04.0f")
+
+. 
+. keep naics2017 isic4
+
+. drop if missing(naics2017) | missing(isic4)
+(0 observations deleted)
+
+. duplicates drop
+
+Duplicates in terms of all variables
+
+(1 observation deleted)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Create multi-level ISIC codes
+. *------------------------------------------------------------------------------*
+. 
+. gen isic4_4d = isic4
+
+. gen isic4_3d = substr(isic4, 2, 3)
+(1 missing value generated)
+
+. gen isic4_2d = substr(isic4, 2, 2)
+(1 missing value generated)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Keep manufacturing sectors only (ISIC Rev 4 divisions 10-33)
+. *------------------------------------------------------------------------------*
+. 
+. destring isic4_2d, generate(isic4_2d_num) force
+isic4_2d: all characters numeric; isic4_2d_num generated as byte
+(1 missing value generated)
+
+. keep if isic4_2d_num >= 10 & isic4_2d_num <= 33
+(1,258 observations deleted)
+
+. drop isic4_2d_num
+
+. 
+. label variable naics2017 "NAICS 2017 code"
+
+. label variable isic4_4d "ISIC Rev 4 - 4 digit"
+
+. label variable isic4_3d "ISIC Rev 4 - 3 digit"
+
+. label variable isic4_2d "ISIC Rev 4 - 2 digit"
+
+. 
+. save "$concordance_dir/naics2017_isic4_concordance.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/raw_data/concordance/naics2017_isic4_concordance.dta saved
+
+. 
+. *==============================================================================*
+. * PART 4: BUILD COMPLETE HS6 -> ISIC REV 4 CONCORDANCE
+. *==============================================================================*
+. 
+. use "$concordance_dir/hs6_naics2017_concordance.dta", clear
+
+. 
+. *------------------------------------------------------------------------------*
+. * Merge with NAICS -> ISIC concordance
+. *------------------------------------------------------------------------------*
+. 
+. merge m:m naics2017 using "$concordance_dir/naics2017_isic4_concordance.dta", ///
+>     keep(match master) nogen
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                         4,834
+        from master                     4,834  
+        from using                          0  
+
+    Matched                             2,060  
+    -----------------------------------------
+
+. 
+. *------------------------------------------------------------------------------*
+. * Resolve multiple matches (keep most frequent)
+. *------------------------------------------------------------------------------*
+. 
+. bysort hs6 isic4_4d: gen n_matches = _N
+
+. bysort hs6: egen max_matches = max(n_matches)
+
+. keep if n_matches == max_matches
+(0 observations deleted)
+
+. bysort hs6 (isic4_4d): keep if _n == 1
+(2 observations deleted)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Rename to Colombian CIIU convention
+. *------------------------------------------------------------------------------*
+. 
+. keep hs6 isic4_4d isic4_3d isic4_2d naics2017
+
+. 
+. rename isic4_4d ciiu_rev4_4d
+
+. rename isic4_3d ciiu_rev4_3d
+
+. rename isic4_2d ciiu_rev4_2d
+
+. 
+. label variable hs6 "Harmonized System 6-digit code"
+
+. label variable ciiu_rev4_4d "CIIU Rev 4 - 4 digit"
+
+. label variable ciiu_rev4_3d "CIIU Rev 4 - 3 digit"
+
+. label variable ciiu_rev4_2d "CIIU Rev 4 - 2 digit"
+
+. label variable naics2017 "NAICS 2017 code"
+
+. 
+. *------------------------------------------------------------------------------*
+. * Summary statistics
+. *------------------------------------------------------------------------------*
+. 
+. preserve
+
+.     collapse (count) n_hs6=hs6, by(ciiu_rev4_2d)
+string variable hs6 not allowed with statistic count
+r(109);
+
+end of do-file
+r(109);
+
+end of do-file
+
+r(109);
+

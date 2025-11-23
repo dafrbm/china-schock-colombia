@@ -1,0 +1,418 @@
+----------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/00_deflators_23 Nov 2025.log
+  log type:  text
+ opened on:  23 Nov 2025, 00:17:01
+
+. 
+. *------------------------------------------------------------------------------*
+. * Import and identify price series
+. *------------------------------------------------------------------------------*
+. 
+. * Import Banrep Excel file (sheet "Datos" has 2 header rows)
+. local excel_file "$raw_dir/deflators/graficador_series.xlsx"
+
+. capture confirm file "`excel_file'"
+
+. if _rc {
+.     display as error "ERROR: Excel file not found at `excel_file'"
+.     exit 601
+. }
+
+. 
+. import excel "`excel_file'", sheet("Datos") firstrow clear
+(39 vars, 847 obs)
+
+. 
+. * Identify and rename key columns
+. * Column structure from Banrep:
+. *   J:  IPP Manufacturing (domestic supply) - end of month
+. *   Z:  IPP Intermediate consumption - end of month  
+. *   AH: IPP Capital goods - end of month
+. *   Inflacióntota~s: CPI Total - end of month
+. 
+. rename Fecha date_str
+
+. rename J ipp_manuf_raw
+
+. rename Z ipp_inter_raw
+
+. rename AH ipp_cap_raw
+
+. rename Inflacióntota~s ipc_raw
+
+. 
+. keep date_str ipp_manuf_raw ipp_inter_raw ipp_cap_raw ipc_raw
+
+. 
+. *------------------------------------------------------------------------------*
+. * Process dates and convert to numeric
+. *------------------------------------------------------------------------------*
+. 
+. * Remove units row (first row after headers)
+. drop if date_str == "dd/mm/aaaa"
+(0 observations deleted)
+
+. 
+. * Parse dates (format: dd/mm/yyyy)
+. gen date_temp = date(date_str, "DMY")
+(3 missing values generated)
+
+. format date_temp %td
+
+. gen year = year(date_temp)
+(3 missing values generated)
+
+. gen month = month(date_temp)
+(3 missing values generated)
+
+. drop date_temp date_str
+
+. 
+. * Convert to numeric (handle European format: comma as decimal separator)
+. foreach var in ipp_manuf_raw ipp_inter_raw ipp_cap_raw ipc_raw {
+  2.     replace `var' = "" if `var' == "-"
+  3.     replace `var' = subinstr(`var', ",", ".", .)
+  4.     
+.     local newvar = substr("`var'", 1, length("`var'") - 4)
+  5.     destring `var', gen(`newvar') force
+  6.     drop `var'
+  7. }
+(174 real changes made)
+(670 real changes made)
+ipp_manuf_raw: all characters numeric; ipp_manuf generated as double
+(177 missing values generated)
+(174 real changes made)
+(670 real changes made)
+ipp_inter_raw: all characters numeric; ipp_inter generated as double
+(177 missing values generated)
+(174 real changes made)
+(670 real changes made)
+ipp_cap_raw: all characters numeric; ipp_cap generated as double
+(177 missing values generated)
+(0 real changes made)
+(844 real changes made)
+ipc_raw: all characters numeric; ipc generated as double
+(3 missing values generated)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Filter period and calculate annual averages
+. *------------------------------------------------------------------------------*
+. 
+. keep if year >= 1992 & year <= 2023
+(463 observations deleted)
+
+. collapse (mean) ipp_manuf ipp_inter ipp_cap ipc, by(year)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Create deflators with base year 2018
+. *------------------------------------------------------------------------------*
+. 
+. local base_year = 2018
+
+. 
+. * Get base year values
+. foreach var in ipp_manuf ipp_inter ipp_cap ipc {
+  2.     summarize `var' if year == `base_year', meanonly
+  3.     local base_`var' = r(mean)
+  4. }
+
+. 
+. * Generate indices (base 100 in 2018)
+. gen ipp_manuf_index = (ipp_manuf / `base_ipp_manuf') * 100
+
+. gen ipp_inter_index = (ipp_inter / `base_ipp_inter') * 100
+
+. gen ipp_cap_index = (ipp_cap / `base_ipp_cap') * 100
+
+. gen ipc_index = (ipc / `base_ipc') * 100
+
+. 
+. * Generate deflators (base 1.0 in 2018)
+. gen ipp_manuf_deflator = ipp_manuf / `base_ipp_manuf'
+
+. gen ipp_inter_deflator = ipp_inter / `base_ipp_inter'
+
+. gen ipp_cap_deflator = ipp_cap / `base_ipp_cap'
+
+. gen ipc_deflator = ipc / `base_ipc'
+
+. 
+. * Round for precision
+. foreach var of varlist *_index {
+  2.     replace `var' = round(`var', 0.01)
+  3. }
+(30 real changes made)
+(31 real changes made)
+(31 real changes made)
+(31 real changes made)
+
+. foreach var of varlist *_deflator {
+  2.     replace `var' = round(`var', 0.000001)
+  3. }
+(30 real changes made)
+(29 real changes made)
+(29 real changes made)
+(22 real changes made)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Label variables
+. *------------------------------------------------------------------------------*
+. 
+. label variable year "Year"
+
+. 
+. label variable ipp_manuf_index "IPP Manufacturing index (base 2018=100)"
+
+. label variable ipp_inter_index "IPP Intermediate inputs index (base 2018=100)"
+
+. label variable ipp_cap_index "IPP Capital goods index (base 2018=100)"
+
+. label variable ipc_index "CPI Total index (base 2018=100)"
+
+. 
+. label variable ipp_manuf_deflator "IPP Manufacturing deflator (base 2018=1.0)"
+
+. label variable ipp_inter_deflator "IPP Intermediate inputs deflator (base 2018=1.0)"
+
+. label variable ipp_cap_deflator "IPP Capital goods deflator (base 2018=1.0)"
+
+. label variable ipc_deflator "CPI Total deflator (base 2018=1.0)"
+
+. 
+. label variable ipp_manuf "IPP Manufacturing (original Banrep value)"
+
+. label variable ipp_inter "IPP Intermediate inputs (original Banrep value)"
+
+. label variable ipp_cap "IPP Capital goods (original Banrep value)"
+
+. label variable ipc "CPI Total (original Banrep value)"
+
+. 
+. *------------------------------------------------------------------------------*
+. * Validation
+. *------------------------------------------------------------------------------*
+. 
+. * Verify base year values
+. assert abs(ipp_manuf_index - 100) < 0.01 if year == `base_year'
+
+. assert abs(ipp_inter_index - 100) < 0.01 if year == `base_year'
+
+. assert abs(ipp_cap_index - 100) < 0.01 if year == `base_year'
+
+. assert abs(ipc_index - 100) < 0.01 if year == `base_year'
+
+. 
+. assert abs(ipp_manuf_deflator - 1) < 0.000001 if year == `base_year'
+
+. assert abs(ipp_inter_deflator - 1) < 0.000001 if year == `base_year'
+
+. assert abs(ipp_cap_deflator - 1) < 0.000001 if year == `base_year'
+
+. assert abs(ipc_deflator - 1) < 0.000001 if year == `base_year'
+
+. 
+. * Check for missing values
+. misstable summarize ipp_manuf_deflator ipp_inter_deflator ipp_cap_deflator ipc_deflator
+(variables nonmissing or string)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Calculate inflation rates for reference
+. *------------------------------------------------------------------------------*
+. 
+. sort year
+
+. foreach var in ipp_manuf ipp_inter ipp_cap ipc {
+  2.     gen `var'_inflation = ((`var'_index/`var'_index[_n-1]) - 1) * 100 if year > 1992
+  3.     label variable `var'_inflation "`var' inflation rate (%)"
+  4. }
+(1 missing value generated)
+(1 missing value generated)
+(1 missing value generated)
+(1 missing value generated)
+
+. 
+. *------------------------------------------------------------------------------*
+. * Organize and save
+. *------------------------------------------------------------------------------*
+. 
+. order year ///
+>       ipp_manuf_index ipp_manuf_deflator ///
+>       ipp_inter_index ipp_inter_deflator ///
+>       ipp_cap_index ipp_cap_deflator ///
+>       ipc_index ipc_deflator ///
+>       ipp_manuf ipp_inter ipp_cap ipc ///
+>       ipp_manuf_inflation ipp_inter_inflation ipp_cap_inflation ipc_inflation
+
+. 
+. sort year
+
+. compress
+  variable year was float now int
+  (64 bytes saved)
+
+. 
+. notes: Deflators for productivity analysis - Colombia 1992-2023
+
+. notes: Source: Banco de la República historical series
+
+. notes: Base year: 2018 (indices = 100, deflators = 1.0)
+
+. notes: Methodology: Differentiated deflation (Eslava et al. 2004)
+
+. notes: Processed: `c(current_date)'
+
+. 
+. save "$clean_dir/deflators_colombia_1992_2023.dta", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/deflators_colombia_1992_2023.dta saved
+
+. export delimited using "$clean_dir/deflators_colombia_1992_2023.csv", replace
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/deflators_colombia_1992_2023.csv saved
+
+. 
+. *------------------------------------------------------------------------------*
+. * Validation graphs
+. *------------------------------------------------------------------------------*
+. 
+. * Graph 1: Price indices evolution
+. twoway (line ipp_manuf_index year, lcolor(navy) lwidth(medium)) ///
+>        (line ipp_inter_index year, lcolor(maroon) lwidth(medium) lpattern(dash)) ///
+>        (line ipp_cap_index year, lcolor(forest_green) lwidth(medium) lpattern(shortdash)) ///
+>        (line ipc_index year, lcolor(orange) lwidth(medium) lpattern(dot)), ///
+>        title("Price Indices Evolution (1992-2023)", size(medium)) ///
+>        subtitle("Base 2018 = 100") ///
+>        xtitle("Year") ytitle("Index (2018=100)") ///
+>        xlabel(1992(4)2024, angle(45)) ///
+>        ylabel(, angle(0) format(%9.0f)) ///
+>        legend(order(1 "IPP Manufacturing" 2 "IPP Intermediates" ///
+>                     3 "IPP Capital" 4 "CPI Total") ///
+>               position(6) rows(2) size(small)) ///
+>        graphregion(color(white)) bgcolor(white) ///
+>        note("Source: Banco de la República", size(vsmall))
+
+. 
+. graph export "$clean_dir/indices_evolution.png", replace width(1200)
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/indices_evolution.png saved as PNG format
+
+. 
+. * Graph 2: Annual inflation rates
+. twoway (line ipp_manuf_inflation year, lcolor(navy) lwidth(medium)) ///
+>        (line ipp_inter_inflation year, lcolor(maroon) lwidth(medium)) ///
+>        (line ipp_cap_inflation year, lcolor(forest_green) lwidth(medium)) ///
+>        (line ipc_inflation year, lcolor(orange) lwidth(medium)), ///
+>        title("Annual Inflation by Price Index (1993-2023)", size(medium)) ///
+>        xtitle("Year") ytitle("Annual inflation (%)") ///
+>        xlabel(1992(4)2024, angle(45)) ///
+>        ylabel(, angle(0) format(%9.1f)) ///
+>        yline(0, lcolor(black) lwidth(thin)) ///
+>        xline(2001, lcolor(red) lpattern(dash) lwidth(thin)) ///
+>        legend(order(1 "IPP Manufacturing" 2 "IPP Intermediates" ///
+>                     3 "IPP Capital" 4 "CPI Total") ///
+>               position(6) rows(2) size(small)) ///
+>        graphregion(color(white)) bgcolor(white) ///
+>        note("Source: Banco de la República" ///
+>             "Vertical line: China WTO accession (2001)", size(vsmall))
+
+. 
+. graph export "$clean_dir/inflation_rates.png", replace width(1200)
+file C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/processed/inflation_rates.png saved as PNG format
+
+. 
+. *------------------------------------------------------------------------------*
+. * Summary statistics
+. *------------------------------------------------------------------------------*
+. 
+. summarize ipp_manuf_deflator ipp_inter_deflator ipp_cap_deflator ipc_deflator, ///
+>          detail format
+
+         IPP Manufacturing deflator (base 2018=1.0)
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%      .175823        .175823
+ 5%      .203686        .203686
+10%      .271016         .23287       Obs                  32
+25%      .498583        .271016       Sum of wgt.          32
+
+50%     .7631775                      Mean           .7329108
+                        Largest       Std. dev.        .32019
+75%     .9475225       1.069062
+90%     1.069062       1.154368       Variance       .1025216
+95%     1.346905       1.346905       Skewness       .0502934
+99%     1.437577       1.437577       Kurtosis       2.556653
+
+      IPP Intermediate inputs deflator (base 2018=1.0)
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%      .168246        .168246
+ 5%      .188265        .188265
+10%       .26012        .218496       Obs                  32
+25%      .454439         .26012       Sum of wgt.          32
+
+50%      .745066                      Mean            .724204
+                        Largest       Std. dev.      .3532863
+75%      .923035       1.062157
+90%     1.062157       1.228636       Variance       .1248112
+95%     1.540397       1.540397       Skewness       .4602263
+99%      1.56685        1.56685       Kurtosis       3.037149
+
+         IPP Capital goods deflator (base 2018=1.0)
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%      .247784        .247784
+ 5%      .281152        .281152
+10%      .358247        .316621       Obs                  32
+25%      .642121        .358247       Sum of wgt.          32
+
+50%     .8019015                      Mean           .7821664
+                        Largest       Std. dev.      .2715904
+75%     .9594415       1.096988
+90%     1.096988       1.136741       Variance       .0737613
+95%      1.24222        1.24222       Skewness      -.2961659
+99%     1.323987       1.323987       Kurtosis        2.62352
+
+             CPI Total deflator (base 2018=1.0)
+-------------------------------------------------------------
+      Percentiles      Smallest
+ 1%      .622462        .622462
+ 5%      .700334        .700334
+10%      .893601        .781804       Obs                  32
+25%     1.081342        .893601       Sum of wgt.          32
+
+50%     1.890517                      Mean           2.797618
+                        Largest       Std. dev.       2.24784
+75%     3.508867       6.446929
+90%     6.446929        6.93909       Variance       5.052783
+95%     7.048831       7.048831       Skewness        1.11549
+99%     8.341558       8.341558       Kurtosis       2.874499
+
+. 
+. * Period comparison
+. summarize *_inflation if year >= 1993 & year <= 2000
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+ipp_manuf_~n |          8    14.78112    1.771326   12.41892   16.80696
+ipp_inter_~n |          8    14.09715    3.019129   8.873022    19.0389
+ipp_cap_in~n |          8    13.60029    1.761735   9.924776   15.04746
+ipc_inflat~n |          8   -11.44605    14.09464   -41.2688   1.580901
+
+. summarize *_inflation if year >= 2001
+
+    Variable |        Obs        Mean    Std. dev.       Min        Max
+-------------+---------------------------------------------------------
+ipp_manuf_~n |         23    4.508426    3.902143  -.1177422   16.67533
+ipp_inter_~n |         23    5.416391    6.031696  -2.729115   25.37847
+ipp_cap_in~n |         23    3.030713    5.407425  -6.883052   14.17956
+ipc_inflat~n |         23    10.08311    51.88591  -46.37004    190.516
+
+. 
+. log close
+      name:  <unnamed>
+       log:  C:\Users\dafrb\Desktop\EAM_data\CHINA-SCHOCK/logs/00_deflators_23 Nov 2025.log
+  log type:  text
+ closed on:  23 Nov 2025, 00:17:08
+----------------------------------------------------------------------------------------------------------------------------------------
